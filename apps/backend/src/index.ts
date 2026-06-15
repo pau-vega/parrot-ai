@@ -2,7 +2,10 @@ import express from "express";
 import { createServer } from "http";
 import { WebSocketServer, WebSocket } from "ws";
 import { resolve } from "path";
-import { PipelineProcess } from "./pipeline";
+import { PythonPipelineBackend } from "./pipeline";
+import { backendKind } from "./backend";
+import type { PipelineBackend } from "./backend";
+import { DEFAULT_INPUT_DEVICE, DEFAULT_OUTPUT_DEVICE, LLM_MODEL } from "./config";
 import type { ServerMessage, PipelineEvent } from "./types";
 import { isBrowserMessage } from "./types";
 
@@ -27,14 +30,23 @@ app.use(express.static(FRONTEND_DIR));
 
 // --- pipeline process -------------------------------------------------------
 
-const pipeline = new PipelineProcess();
+function createBackend(): PipelineBackend {
+  const kind = backendKind();
+  if (kind === "node") {
+    // Phase 2 of the migration lands the in-process Node pipeline here.
+    throw new Error("PIPELINE_BACKEND=node is not implemented yet (see migration plan).");
+  }
+  return new PythonPipelineBackend();
+}
+
+const pipeline = createBackend();
 
 const cachedDevices: { input: string[]; output: string[] } = { input: [], output: [] };
 let cachedPrompt = "";
 let isRunning = false;
 const agentState = {
-  input_device: "BlackHole 2ch",
-  output_device: "BlackHole 16ch",
+  input_device: DEFAULT_INPUT_DEVICE,
+  output_device: DEFAULT_OUTPUT_DEVICE,
 };
 
 pipeline.on("event", (event: PipelineEvent) => {
@@ -81,7 +93,7 @@ wss.on("connection", (ws: WebSocket) => {
       prompt: cachedPrompt,
       input_device: agentState.input_device,
       output_device: agentState.output_device,
-      llm: process.env.LLM_MODEL ?? "deepseek-chat",
+      llm: LLM_MODEL,
       stt: "whisper · es",
       tts: "piper",
     },

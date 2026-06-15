@@ -5,23 +5,30 @@ import { EventEmitter } from "events";
 import { resolve } from "path";
 import type { PipelineCommand, PipelineEvent } from "./types";
 import { isPipelineEvent } from "./types";
+import type { PipelineBackend } from "./backend";
+import { pythonEnv } from "./config";
 
 const REPO_ROOT = resolve(__dirname, "../../../");
 const PYTHON_BIN = resolve(REPO_ROOT, ".venv/bin/python");
 const PIPELINE_SCRIPT = resolve(REPO_ROOT, "python/pipeline.py");
 
 /**
- * Manages the long-lived Python pipeline child process.
+ * `PipelineBackend` implementation that manages the long-lived Python (Pipecat)
+ * child process.
  *
  * The Python process is a persistent IPC server: it boots once, emits `init`
  * (devices + default prompt), then loops on stdin waiting for commands. It is
  * NOT killed on "stop" — only the in-process agent task is cancelled. The
  * process is killed only on backend shutdown (`kill`).
+ *
+ * Config (prompt, model/voice, default devices) is injected via env on spawn
+ * from `config.ts` so Node is the single source of truth; `python/shared.py`
+ * reads those env vars with its own values as fallback.
  */
 const MIN_HEALTHY_MS = 5_000; // an exit sooner than this counts as a crash-loop failure
 const MAX_RESTARTS = 5; // give up after this many consecutive fast crashes
 
-export class PipelineProcess extends EventEmitter {
+export class PythonPipelineBackend extends EventEmitter implements PipelineBackend {
   private proc: ChildProcess | null = null;
   private shuttingDown = false;
   private restarts = 0;
@@ -32,7 +39,7 @@ export class PipelineProcess extends EventEmitter {
     this.proc = spawn(PYTHON_BIN, [PIPELINE_SCRIPT], {
       cwd: REPO_ROOT,
       stdio: ["pipe", "pipe", "inherit"], // stderr inherited: Python logs stay off the IPC channel
-      env: { ...process.env },
+      env: { ...process.env, ...pythonEnv() },
     });
 
     const rl = createInterface({ input: this.proc.stdout! });
