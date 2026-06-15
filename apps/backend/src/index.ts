@@ -2,10 +2,7 @@ import express from "express";
 import { createServer } from "http";
 import { WebSocketServer, WebSocket } from "ws";
 import { resolve } from "path";
-import { PythonPipelineBackend } from "./pipeline";
 import { NodePipelineBackend } from "./node-backend";
-import { backendKind } from "./backend";
-import type { PipelineBackend } from "./backend";
 import { DEFAULT_INPUT_DEVICE, DEFAULT_OUTPUT_DEVICE, LLM_MODEL } from "./config";
 import type { ServerMessage, PipelineEvent } from "./types";
 import { isBrowserMessage } from "./types";
@@ -31,12 +28,7 @@ app.use(express.static(FRONTEND_DIR));
 
 // --- pipeline process -------------------------------------------------------
 
-function createBackend(): PipelineBackend {
-  // Full in-process Node pipeline (Phase 2) vs the Python child process.
-  return backendKind() === "node" ? new NodePipelineBackend() : new PythonPipelineBackend();
-}
-
-const pipeline = createBackend();
+const pipeline = new NodePipelineBackend();
 
 const cachedDevices: { input: string[]; output: string[] } = { input: [], output: [] };
 let cachedPrompt = "";

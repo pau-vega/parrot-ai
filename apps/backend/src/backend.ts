@@ -2,15 +2,9 @@ import type { EventEmitter } from "events";
 import type { PipelineEvent } from "./types";
 
 /**
- * The stable seam between the Node control/UI layer and whatever runs the
- * realtime voice pipeline.
- *
- * Today the only implementation is `PythonPipelineBackend` (spawns the Pipecat
- * child process). Phase 2 of the migration adds an in-process `NodePipelineBackend`
- * behind this same interface; `index.ts` selects one via the PIPELINE_BACKEND env
- * var. Both emit the identical `PipelineEvent` stream, so the frontend never changes.
- *
- * Emits: "event" with a `PipelineEvent` payload.
+ * The seam between the Node control/UI layer and the realtime voice pipeline.
+ * Implemented in-process by `NodePipelineBackend`. Emits "event" with a
+ * `PipelineEvent` payload.
  */
 export interface PipelineBackend extends EventEmitter {
   /** Boot the backend (spawn the child / init the in-process pipeline). */
@@ -25,13 +19,6 @@ export interface PipelineBackend extends EventEmitter {
   kill(): void;
   /** Whether the backend is currently alive. */
   isAlive(): boolean;
-  // Typed event channel — both backends emit a single "event" with PipelineEvent.
+  // Typed event channel — emits a single "event" with PipelineEvent.
   on(event: "event", listener: (e: PipelineEvent) => void): this;
-}
-
-export type PipelineBackendKind = "python" | "node";
-
-/** Resolve the configured backend kind from the environment (default: python). */
-export function backendKind(): PipelineBackendKind {
-  return process.env.PIPELINE_BACKEND === "node" ? "node" : "python";
 }

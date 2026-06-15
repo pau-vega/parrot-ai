@@ -37,22 +37,3 @@ export const PIPER_VOICE = process.env.PIPER_VOICE ?? "es_ES-davefx-medium";
 export const LLM_BASE_URL = process.env.LLM_BASE_URL ?? "https://api.deepseek.com/v1";
 export const LLM_MODEL = process.env.LLM_MODEL ?? "deepseek-chat";
 export const LLM_MAX_TOKENS = parseInt(process.env.LLM_MAX_TOKENS ?? "160", 10); // short voice replies
-
-/**
- * Env vars passed down to the Python child so it reads config from here rather
- * than hardcoding it. Keys mirror what `python/shared.py` reads with these as
- * defaults, so a directly-launched `agent.py` still works without Node.
- */
-export function pythonEnv(): Record<string, string> {
-  return {
-    PARROT_PROMPT: DEFAULT_PROMPT,
-    WHISPER_MODEL,
-    WHISPER_COMPUTE,
-    PIPER_VOICE,
-    LLM_BASE_URL,
-    LLM_MODEL,
-    LLM_MAX_TOKENS: String(LLM_MAX_TOKENS),
-    PARROT_INPUT_DEVICE: DEFAULT_INPUT_DEVICE,
-    PARROT_OUTPUT_DEVICE: DEFAULT_OUTPUT_DEVICE,
-  };
-}
