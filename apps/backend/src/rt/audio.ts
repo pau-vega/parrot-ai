@@ -99,8 +99,16 @@ export class AudioOutput {
     const slice = Math.floor(this.sampleRate * 0.02) * 2; // 20ms of 16-bit mono
     for (let off = 0; off < pcm.length; off += slice) {
       if (this.cancelled) return;
-      this.io.write(pcm.subarray(off, Math.min(off + slice, pcm.length)));
-      await new Promise((r) => setImmediate(r));
+      const canContinue = this.io.write(pcm.subarray(off, Math.min(off + slice, pcm.length)));
+      if (canContinue) {
+        await new Promise<void>((r) => setImmediate(r));
+      } else {
+        // Back-pressure: wait for drain or a 100ms safety timeout (e.g. if quit() fires).
+        await new Promise<void>((r) => {
+          const tid = setTimeout(r, 100);
+          this.io.once("drain", () => { clearTimeout(tid); r(); });
+        });
+      }
     }
   }
 

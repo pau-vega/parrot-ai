@@ -28,6 +28,9 @@ export class PiperTTS {
 
   async load(): Promise<void> {
     this.session = await ort.InferenceSession.create(VOICE_ONNX);
+    if (!this.session.outputNames.includes("output")) {
+      throw new Error(`PiperTTS: ONNX model missing expected output "output"; found: ${this.session.outputNames.join(", ")}`);
+    }
 
     // One warm WASM instance; callMain is reused per synth. espeak-ng-data is
     // preloaded inside the module at /espeak-ng-data.

@@ -7,9 +7,8 @@ import { Orchestrator } from "./rt/orchestrator";
 
 /**
  * In-process `PipelineBackend` — the full Node realtime pipeline (no Python
- * child, except the thin Piper synth the Orchestrator spawns). Emits the exact
- * same PipelineEvent stream as PythonPipelineBackend, so index.ts and the
- * frontend treat the two identically. Selected via PIPELINE_BACKEND=node.
+ * child). Emits the exact same PipelineEvent stream as PythonPipelineBackend,
+ * so index.ts and the frontend treat the two identically.
  */
 export class NodePipelineBackend extends EventEmitter implements PipelineBackend {
   private orch: Orchestrator | null = null;
@@ -45,7 +44,12 @@ export class NodePipelineBackend extends EventEmitter implements PipelineBackend
   sendStop(): void {
     const orch = this.orch;
     this.orch = null;
-    void orch?.stop();
+    if (!orch) return;
+    orch.removeAllListeners("event");
+    orch.stop().catch((err: unknown) => {
+      const message = err instanceof Error ? err.message : String(err);
+      this.emit("event", { type: "error", message } satisfies PipelineEvent);
+    });
   }
 
   sendSetPrompt(text: string): void {

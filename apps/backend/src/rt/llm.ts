@@ -52,6 +52,10 @@ export class LLMClient {
       }
     }
     if (buf.trim()) yield buf.trim();
-    if (full.trim()) this.history.push({ role: "assistant", content: full.trim() });
+    if (full.trim()) {
+      this.history.push({ role: "assistant", content: full.trim() });
+    } else {
+      console.error("LLMClient: empty response from stream; conversation history not updated");
+    }
   }
 }

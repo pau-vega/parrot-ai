@@ -22,6 +22,7 @@ export class WhisperSTT {
 
   /** Transcribe 16kHz mono float32 audio to a single trimmed Spanish string. */
   async transcribe(audio: Float32Array): Promise<string> {
+    if (!this.whisper) throw new Error("WhisperSTT: call load() before transcribe()");
     const task = await this.whisper.transcribe(audio, { language: "es" });
     const segments = await task.result;
     return segments

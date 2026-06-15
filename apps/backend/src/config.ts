@@ -22,14 +22,14 @@ export const DEFAULT_PROMPT = readFileSync(
 export const DEFAULT_INPUT_DEVICE = "BlackHole 2ch"; // Aircall's output lands here (agent HEARS)
 export const DEFAULT_OUTPUT_DEVICE = "BlackHole 16ch"; // routed to Aircall's mic (agent SPEAKS)
 
-// STT (faster-whisper): base+int8 = faster than small on Mac CPU; small if accuracy lacking.
+// STT (smart-whisper / whisper.cpp): base model, Metal GPU on Mac.
 export const WHISPER_MODEL = process.env.WHISPER_MODEL ?? "base";
-export const WHISPER_COMPUTE = process.env.WHISPER_COMPUTE ?? "int8";
 
-// TTS (Piper): auto-downloaded on first use, cached in python/.
+// TTS (Piper, pure Node): WASM phonemizer + onnxruntime-node VITS inference.
 export const PIPER_VOICE = process.env.PIPER_VOICE ?? "es_ES-davefx-medium";
 
 // LLM (DeepSeek, OpenAI-compatible). Use deepseek-chat; NEVER the reasoner (R1).
 export const LLM_BASE_URL = process.env.LLM_BASE_URL ?? "https://api.deepseek.com/v1";
 export const LLM_MODEL = process.env.LLM_MODEL ?? "deepseek-chat";
-export const LLM_MAX_TOKENS = parseInt(process.env.LLM_MAX_TOKENS ?? "160", 10); // short voice replies
+const parsedMaxTokens = parseInt(process.env.LLM_MAX_TOKENS ?? "160", 10);
+export const LLM_MAX_TOKENS = Number.isNaN(parsedMaxTokens) ? 160 : parsedMaxTokens; // short voice replies

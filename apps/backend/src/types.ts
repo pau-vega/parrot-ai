@@ -23,61 +23,68 @@ export type BrowserMessage =
   | { type: "stop" }
   | { type: "set_prompt"; text: string };
 
-// Messages from Node server → browser (unchanged from original protocol)
-export type ServerMessage =
-  | { type: "hello"; running: boolean; devices: DeviceList; config: HelloConfig }
+// Events shared between the pipeline and the browser (single source avoids drift).
+type PipelineServerEvent =
   | { type: "state"; value: AgentState }
   | { type: "transcript"; role: "user" | "assistant"; text: string; ts?: string }
   | { type: "latency"; ms: number }
   | { type: "running"; value: boolean }
   | { type: "error"; message: string };
 
-// Events from Python pipeline → Node (stdout JSON lines)
+// Messages from Node server → browser
+export type ServerMessage =
+  | { type: "hello"; running: boolean; devices: DeviceList; config: HelloConfig }
+  | PipelineServerEvent;
+
+// Events from the pipeline → Node (NodePipelineBackend emits these).
+// Defined as {init} | PipelineServerEvent so the two types stay in sync:
+// any new non-init pipeline event must also be a valid ServerMessage.
 export type PipelineEvent =
   | { type: "init"; prompt: string; devices: DeviceList }
-  | { type: "state"; value: AgentState }
-  | { type: "transcript"; role: "user" | "assistant"; text: string }
-  | { type: "latency"; ms: number }
-  | { type: "running"; value: boolean }
-  | { type: "error"; message: string };
+  | PipelineServerEvent;
 
-// Commands from Node → Python pipeline (stdin JSON lines)
+// Commands from Node → pipeline (mirrors BrowserMessage).
 export type PipelineCommand =
   | { type: "start"; input_device: string; output_device: string }
   | { type: "stop" }
   | { type: "set_prompt"; text: string };
 
-// Known PipelineEvent discriminants — used to validate untrusted stdout JSON.
-const PIPELINE_EVENT_TYPES = new Set<PipelineEvent["type"]>([
-  "init",
-  "state",
-  "transcript",
-  "latency",
-  "running",
-  "error",
-]);
-
-// Narrowing guard for JSON parsed off the Python stdout IPC channel.
+// Narrowing guard for JSON parsed off the pipeline IPC channel.
+// Validates required fields for each variant, not just the discriminant.
 export function isPipelineEvent(value: unknown): value is PipelineEvent {
-  return (
-    typeof value === "object" &&
-    value !== null &&
-    "type" in value &&
-    typeof (value as { type: unknown }).type === "string" &&
-    PIPELINE_EVENT_TYPES.has((value as { type: PipelineEvent["type"] }).type)
-  );
+  if (typeof value !== "object" || value === null || !("type" in value)) return false;
+  const v = value as Record<string, unknown>;
+  switch (v["type"]) {
+    case "init":
+      return typeof v["prompt"] === "string" && typeof v["devices"] === "object" && v["devices"] !== null;
+    case "state":
+      return typeof v["value"] === "string";
+    case "transcript":
+      return (v["role"] === "user" || v["role"] === "assistant") && typeof v["text"] === "string";
+    case "latency":
+      return typeof v["ms"] === "number";
+    case "running":
+      return typeof v["value"] === "boolean";
+    case "error":
+      return typeof v["message"] === "string";
+    default:
+      return false;
+  }
 }
 
-// Known BrowserMessage discriminants — used to validate untrusted WS JSON.
-const BROWSER_MESSAGE_TYPES = new Set<BrowserMessage["type"]>(["start", "stop", "set_prompt"]);
-
 // Narrowing guard for JSON parsed off a browser WebSocket message.
+// Validates required fields for each variant, not just the discriminant.
 export function isBrowserMessage(value: unknown): value is BrowserMessage {
-  return (
-    typeof value === "object" &&
-    value !== null &&
-    "type" in value &&
-    typeof (value as { type: unknown }).type === "string" &&
-    BROWSER_MESSAGE_TYPES.has((value as { type: BrowserMessage["type"] }).type)
-  );
+  if (typeof value !== "object" || value === null || !("type" in value)) return false;
+  const v = value as Record<string, unknown>;
+  switch (v["type"]) {
+    case "start":
+      return typeof v["input_device"] === "string" && typeof v["output_device"] === "string";
+    case "stop":
+      return true;
+    case "set_prompt":
+      return typeof v["text"] === "string";
+    default:
+      return false;
+  }
 }

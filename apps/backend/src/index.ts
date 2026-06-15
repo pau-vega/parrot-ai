@@ -48,8 +48,8 @@ pipeline.on("event", (event: PipelineEvent) => {
   if (event.type === "running") {
     isRunning = event.value;
   }
-  // `event` is narrowed to exclude "init" above; the remaining variants are
-  // all structurally valid ServerMessage members, so no cast is needed.
+  // PipelineEvent (excluding "init") is defined as a subset of ServerMessage,
+  // so this assignment is guaranteed sound by the type definitions in types.ts.
   broadcast(event);
 });
 
@@ -101,8 +101,8 @@ wss.on("connection", (ws: WebSocket) => {
 
     switch (cmd.type) {
       case "start":
-        agentState.input_device = cmd.input_device || agentState.input_device;
-        agentState.output_device = cmd.output_device || agentState.output_device;
+        if (cmd.input_device) agentState.input_device = cmd.input_device;
+        if (cmd.output_device) agentState.output_device = cmd.output_device;
         pipeline.sendStart(agentState.input_device, agentState.output_device);
         break;
       case "stop":
