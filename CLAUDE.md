@@ -21,175 +21,191 @@ Routing:
 
 ```
 remote AI ─(call)─ Aircall
-  Aircall OUTPUT/speaker  ->  BlackHole 2ch  ->  Pipecat (input)    [the agent HEARS]
-  Pipecat (output)        ->  BlackHole 16ch ->  Aircall MIC        [the agent SPEAKS]
+  Aircall OUTPUT/speaker  ->  BlackHole 2ch  ->  Node pipeline (input)   [the agent HEARS]
+  Node pipeline (output)  ->  BlackHole 16ch ->  Aircall MIC             [the agent SPEAKS]
 ```
+
+## Architecture
+
+The realtime pipeline is **in-process Node/TypeScript** (it replaced an earlier
+Pipecat/Python implementation). The only remaining Python is a thin Piper TTS
+synth helper — Piper ships no working standalone binary on macOS arm64, and
+synthesis is a stateless text→PCM step off the realtime control loop, so keeping
+it as a child process does not split the audio or turn-taking path.
+
+Audio never crosses a process boundary except that one stateless synth call, so
+the VAD that triggers barge-in and the output stream it interrupts live together.
 
 ## Repository structure (pnpm monorepo + Turborepo)
 
 ```
 parrot-ai/
-  pnpm-workspace.yaml   ← declares apps/*
+  pnpm-workspace.yaml   ← declares apps/*; allowBuilds for native addons
   turbo.json            ← Turborepo task pipeline (build, dev, check-types)
+  prompts/
+    default-es.txt      ← canonical Spanish persona prompt (single source)
+  models/               ← git-ignored weights, fetched via tools/fetch-models.sh
+    ggml-base.bin        ← whisper.cpp STT model
+    silero_vad.onnx      ← Silero v5 VAD model
+  tools/
+    fetch-models.sh     ← downloads STT/VAD models + Piper voice
   apps/
     frontend/           ← vanilla JS UI (no build step)
       index.html
     backend/            ← Node.js/TypeScript server
       src/
-        index.ts        ← Express + WebSocket, serves frontend/
-        pipeline.ts     ← spawns + manages python/pipeline.py as child process
-        types.ts        ← TypeScript types for all WS and IPC messages
+        index.ts         ← Express + WebSocket, serves frontend/, owns the backend
+        backend.ts       ← PipelineBackend interface (the seam)
+        node-backend.ts  ← NodePipelineBackend: runs the pipeline, emits events
+        config.ts        ← single source for prompt + model/voice/LLM/device config
+        types.ts         ← TypeScript types for all WS + event messages
+        rt/              ← the realtime pipeline
+          audio.ts        ← naudiodon-neo capture (16k) + playback (22050), device resolve
+          vad.ts          ← Silero v5 via onnxruntime-node, turn-taking hysteresis
+          stt.ts          ← whisper.cpp (Metal) via smart-whisper
+          llm.ts          ← DeepSeek streaming via openai SDK, sentence chunking
+          tts.ts          ← client for the Piper synth helper (framed PCM over stdio)
+          orchestrator.ts ← turn engine: VAD→STT→LLM→TTS→playback + barge-in
   python/
-    shared.py           ← config, persona prompt, device helpers, build_task() (single source)
-    pipeline.py         ← Pipecat pipeline + stdin/stdout IPC (imports shared)
-    agent.py            ← headless CLI agent (no UI, useful for debugging; imports shared)
-    requirements.txt
-    es_ES-davefx-medium.onnx       ← cached Piper voice model
+    tts_piper.py        ← thin persistent Piper synth (text→PCM); the only Python left
+    requirements.txt    ← just piper-tts
+    es_ES-davefx-medium.onnx       ← Piper voice (git-ignored; fetch-models.sh)
     es_ES-davefx-medium.onnx.json
 ```
 
 ## Stack
 
-- **Backend (Node.js):** Express serves static `apps/frontend/`, `ws` handles `/ws` WebSocket.
-  Manages the Python pipeline process lifecycle and bridges browser ↔ pipeline via IPC.
-- **Pipeline (Python):** Pipecat orchestrates STT → LLM → TTS. Communicates with the
-  Node backend via stdin/stdout newline-delimited JSON (IPC). No FastAPI or WebSocket.
-- **Orchestration / real time:** Pipecat (Silero VAD for turn-taking + barge-in).
-- **STT:** local faster-whisper, `model="base"`, `compute_type="int8"`,
-  `language=Language.ES`. Whisper runs on **CPU** on Mac (no MPS); `int8` is
-  ~2-4x faster than `float32`. Bump to `small` only if accuracy is lacking (costs
-  latency).
-- **LLM:** DeepSeek via an OpenAI-compatible endpoint
-  (`base_url=https://api.deepseek.com/v1`, `model="deepseek-chat"`).
-  Use **deepseek-chat**, never the reasoner (R1): it overthinks for conversation.
-  `max_tokens=160` to cut the long tail (voice replies are short).
-- **TTS:** local **native** Piper (`piper-tts` package, `pipecat-ai[piper]` extra,
-  no HTTP server). Voice `es_ES-davefx-medium`, auto-downloaded on first use via
-  `voice_id`. The voice `.onnx`/`.onnx.json` files are cached in `python/`.
+- **Backend (Node.js):** Express serves static `apps/frontend/`, `ws` handles `/ws`.
+  `NodePipelineBackend` runs the in-process pipeline and emits a `PipelineEvent`
+  stream to the browser.
+- **Orchestration / real time:** hand-rolled turn engine in `rt/orchestrator.ts`
+  (Silero VAD for turn-taking + barge-in). No Pipecat.
+- **Audio I/O:** `naudiodon-neo` (PortAudio). Input opened on BlackHole 2ch at
+  **16kHz mono** (Whisper/VAD native); output on BlackHole 16ch at **22050Hz mono**
+  (Piper native) — BlackHole accepts both rates, so no resampling. Device pairing
+  is by case-insensitive **substring** (numbered BlackHole duplicates).
+- **STT:** `smart-whisper` (whisper.cpp), `model=base`, Spanish, on **Metal/GPU**.
+  Warmed on start (the first run pays a one-time ~3s Metal kernel compile);
+  warm transcription is ~180ms. Faster than the old Python CPU faster-whisper.
+- **VAD:** Silero v5 via `onnxruntime-node`. 512-sample frames at 16kHz with a
+  **64-sample context prepend** and a carried `[2,1,128]` state (mirrors the
+  reference OnnxWrapper). Start/stop hysteresis drives turns + barge-in.
+- **LLM:** DeepSeek via the `openai` SDK (`base_url=https://api.deepseek.com/v1`,
+  `model=deepseek-chat`). Use **deepseek-chat**, never the reasoner (R1): it
+  overthinks for conversation. `max_tokens=160`. Streams tokens and yields
+  **sentence chunks** so TTS can start before the full reply lands.
+- **TTS:** Piper via `python/tts_piper.py` (a persistent child; voice model warm).
+  Voice `es_ES-davefx-medium`; warm synth ~tens of ms per sentence.
 
-## IPC protocol (Node ↔ Python)
+## TTS helper protocol (Node ↔ python/tts_piper.py)
 
-The Node backend spawns `.venv/bin/python python/pipeline.py` as a child process.
+`rt/tts.ts` spawns `.venv/bin/python python/tts_piper.py` with `PIPER_VOICE_ONNX` set.
 
-**Python → Node (stdout, newline-delimited JSON):**
-- `{type:"init", prompt, devices:{input,output}}` — on startup; Node caches for `hello`.
-- `{type:"state", value}` — `idle | listening | thinking | speaking`.
-- `{type:"transcript", role, text}` — `role` = `user` | `assistant`.
-- `{type:"latency", ms}` — `UserStoppedSpeaking → BotStartedSpeaking` time.
-- `{type:"running", value}` / `{type:"error", message}`.
+- **Node → helper (stdin):** one UTF-8 JSON line per request: `{"text": "..."}`.
+- **helper → Node (stdout):** per request, `[u32 LE sample_rate][u32 LE byte_len]`
+  then `byte_len` bytes of signed-16-bit little-endian mono PCM (`byte_len==0` =
+  nothing to speak).
+- **stderr** is for logs only — never write anything else to the helper's stdout.
 
-**Node → Python (stdin, newline-delimited JSON):**
-- `{type:"start", input_device, output_device}` — starts the pipeline.
-- `{type:"stop"}` — cancels the pipeline task.
-- `{type:"set_prompt", text}` — updates the prompt (applies on the next "start").
-
-## WebSocket protocol (`/ws` — browser-facing, unchanged)
+## WebSocket protocol (`/ws` — browser-facing)
 
 - **Client → server:**
   - `{type:"start", input_device, output_device}` — starts the pipeline.
   - `{type:"stop"}` — stops the pipeline.
-  - `{type:"set_prompt", text}` — updates the prompt.
+  - `{type:"set_prompt", text}` — updates the prompt (applies on the next "start").
 - **Server → client:**
   - `{type:"hello", running, devices:{input,output}, config:{prompt,input_device,output_device,llm,stt,tts}}` — on connect.
   - `{type:"state", value}` — `idle | listening | thinking | speaking`.
   - `{type:"transcript", role, text, ts?}` — transcript events.
-  - `{type:"latency", ms}` — end-to-end response latency.
+  - `{type:"latency", ms}` — `UserStoppedSpeaking → BotStartedSpeaking` time.
   - `{type:"running", value}` / `{type:"error", message}`.
+
+Internally `NodePipelineBackend` emits the same set as `PipelineEvent` (plus an
+`init` with prompt + devices the server caches for `hello`).
 
 ## Configuration (environment)
 
-- `DEEPSEEK_API_KEY` — **required**, Python pipeline fails if missing.
+- `DEEPSEEK_API_KEY` — **required** (the LLM client throws without it).
 - `LLM_BASE_URL` — optional, defaults to `https://api.deepseek.com/v1`.
 - `LLM_MODEL` — optional, defaults to `deepseek-chat`.
 - `PORT` — optional Node server port, defaults to `8000`.
 
+`config.ts` is the single source for the prompt + model/voice/device defaults.
+
 ## How to run
 
-Requirements: macOS (Apple Silicon), `DEEPSEEK_API_KEY` in the environment, BlackHole
-2ch and 16ch installed, Node.js ≥ 20, pnpm ≥ 9. **Use Python 3.12** (faster-whisper/
-onnxruntime have no wheels for 3.14).
+Requirements: macOS (Apple Silicon), `DEEPSEEK_API_KEY`, BlackHole 2ch and 16ch,
+Node.js ≥ 20, pnpm ≥ 9, **Python 3.12** (piper-tts), and a native toolchain
+(`cmake` + Xcode Command Line Tools) — the audio/STT addons build **from source**
+(no prebuilds for current Node on arm64).
 
 ```bash
-# Python environment (once)
+# System deps (once)
 brew install --cask blackhole-2ch blackhole-16ch   # audio driver (prompts for password)
-brew install portaudio                              # needed to compile pyaudio
-/opt/homebrew/bin/python3.12 -m venv .venv
-source .venv/bin/activate
-export CFLAGS="-I/opt/homebrew/include" LDFLAGS="-L/opt/homebrew/lib"
-pip install -r python/requirements.txt
+brew install cmake                                  # builds whisper.cpp + naudiodon-neo
+xcode-select --install                              # if not already present
 
-# Node environment (once)
+# Python helper env (once) — only piper-tts
+/opt/homebrew/bin/python3.12 -m venv .venv
+.venv/bin/python -m pip install -r python/requirements.txt
+
+# Node env (once) — native addons build during install (allowBuilds in pnpm-workspace.yaml)
 pnpm install
+
+# Models + Piper voice (once; weights are git-ignored)
+tools/fetch-models.sh
 
 # Run — UI
 export DEEPSEEK_API_KEY="..."
 pnpm turbo dev                              # open http://localhost:8000
 # or: pnpm --filter @parrot/backend dev
-
-# Run — headless (debugging, no UI)
-source .venv/bin/activate
-export DEEPSEEK_API_KEY="..."
-python python/agent.py
 ```
 
 In Aircall settings: speaker = `BlackHole 2ch`, mic = `BlackHole 16ch`.
 
-There are no tests or linter configured in the repo.
-
-## Pipecat API — resolved for 1.3.0 (pinned in `python/requirements.txt`)
-
-The code is adapted to **Pipecat 1.3.0**. The API changed a lot from earlier
-versions; if you upgrade Pipecat, review these points (`pip show pipecat-ai`).
-Current mapping:
-
-- **Context/aggregators:** `LLMContext([...])` +
-  `LLMContextAggregatorPair(context, user_params=LLMUserAggregatorParams(...))`
-  → `.user()` / `.assistant()`. (Previously: `OpenAILLMContext` +
-  `llm.create_context_aggregator`, which **no longer exist**.)
-- **VAD:** lives in `LLMUserAggregatorParams(vad_analyzer=SileroVADAnalyzer())`,
-  **not** in `LocalAudioTransportParams` (that parameter was removed).
-- **Piper TTS:** `PiperTTSService(voice_id="es_ES-davefx-medium")`, native, no
-  `base_url`/HTTP.
-- **STT:** `WhisperSTTService(model="base", language=Language.ES)` —
-  `language` is the `pipecat.transcriptions.language.Language` enum, not a string.
-- **Transcript + UI state:** there is no `TranscriptProcessor` anymore. A
-  `BaseObserver` (`ConsoleObserver` in `python/pipeline.py`) over `on_push_frame` is
-  used, reading `TranscriptionFrame` (user), `LLMTextFrame`/`LLMFullResponse*Frame`
-  (agent) and `User/BotStartedSpeakingFrame` (state). One frame crosses several
-  edges → `on_push_frame` fires multiple times, so it's **deduplicated by frame id**
-  (`_fresh`, capped at 4000 ids). Attached with `task.add_observer(...)`.
-- **Task:** `PipelineTask(pipeline, params=PipelineParams())` — `allow_interruptions`
-  is no longer a field (interruptions on by default via the turn system).
-  `PipelineTask` is marked *deprecated* (subclass of `PipelineWorker`) but works;
-  shut down with `await task.cancel()`.
+There are no tests configured. `pnpm lint` / `pnpm typecheck` both run `tsc --noEmit`
+across the workspace (no separate linter).
 
 ## Gotchas
 
 - The UI **needs the local backend**; it does not work in an isolated preview.
-- Target latency < 1–1.5 s. Whisper is the usual bottleneck; it's already on
-  `base`+`int8` (the fastest). Don't bump to `small` unless accuracy is lacking.
+- **Native addons build from source on current Node/arm64** (no prebuilds): needs
+  `cmake` + Xcode CLT. `pnpm install` runs the build via `allowBuilds` in
+  `pnpm-workspace.yaml`; if an addon is missing, `node-gyp rebuild` in its package
+  dir is the fallback.
+- **Use `naudiodon-neo`, not `naudiodon`** — the original `naudiodon` segfaults in
+  `getDevices()` on modern Node (old NAN addon vs new V8).
+- **Piper has no working standalone binary on macOS arm64** (the release ships
+  without its dylibs), hence the `python/tts_piper.py` helper.
+- BlackHole input is opened at 16kHz and output at 22050Hz; opening the same
+  BlackHole device for both directions **in one process** can fail with PortAudio
+  AUHAL `err=-50`. In production the two directions are separate devices, so this
+  only bites loopback test harnesses.
+- Target latency < 1–1.5 s; measured ~1.4 s end-to-end (dominated by LLM
+  time-to-first-sentence + first TTS; STT is no longer the bottleneck).
 - Two BlackHole installs with the same name get numbered; pairing is by **substring**
-  of the device name (`device_index`).
+  (`rt/audio.ts resolveDevice`).
 - Don't try to capture Aircall's WebRTC from the browser: it's cross-origin. The
   valid path is OS-level virtual audio.
-- The `PipelineTask` deprecation warning is silenced with
-  `warnings.filterwarnings("ignore", category=DeprecationWarning)` in `python/pipeline.py`.
-- Python stdout is the **IPC channel** — never print arbitrary text from `python/pipeline.py`;
-  use `sys.stderr` for any debug output.
+- `python/tts_piper.py` stdout is the **framed-PCM channel** — only the helper's
+  audio protocol goes there; use `sys.stderr` for any debug output.
+- The venv was created under an old path, so `.venv/bin/<console-script>` shebangs
+  (e.g. `pip`, `piper`) may be stale — use `.venv/bin/python -m <tool>` instead.
 
 ## TODO
 
 - [ ] **Hot reload** of the system prompt without restarting the agent
       (right now `set_prompt` only applies on the next "Start").
 - [ ] **Logging/download** of the per-session transcript (role + timestamps).
+- [ ] Optional: pure-Node TTS (onnxruntime-node + espeak-ng) to drop the last
+      Python dependency.
 
 ## Conventions
 
 - Code comments, docstrings, and UI copy in **English**.
-- The agent's persona prompt (`DEFAULT_PROMPT`) stays **Spanish** — the
-  agent converses in Spanish (Whisper `language=ES` + `es_ES` Piper voice). Switching it
-  to English means also changing the STT language and the TTS voice.
+- The agent's persona prompt stays **Spanish** — the agent converses in Spanish
+  (Whisper `language=es` + `es_ES` Piper voice). Switching to English means also
+  changing the STT language and the TTS voice.
 - Agent replies short and natural (it's voice, not chat).
-- `DEFAULT_PROMPT` lives in `python/shared.py` (imported by both `pipeline.py` and
-  `agent.py`) and is echoed to Node via the `init` IPC event on startup. It is **not**
-  duplicated in TypeScript.
+- The persona prompt lives in `prompts/default-es.txt`, loaded once by
+  `config.ts` as `DEFAULT_PROMPT`. It is **not** duplicated elsewhere.
