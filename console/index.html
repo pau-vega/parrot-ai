@@ -1,0 +1,243 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Parrot AI</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&family=Inter:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --ink:#0E1116; --panel:#161A21; --panel2:#1D222B; --line:rgba(255,255,255,.07);
+    --line2:rgba(255,255,255,.12); --tx:#E7E9ED; --dim:#8A92A0; --faint:#5C6470;
+    --idle:#6B7280; --listen:#38BDF8; --think:#F59E0B; --speak:#34D399; --err:#F87171;
+    --remote:#7DD3FC; --agent:#6EE7B7;
+    --sans:"Inter",system-ui,sans-serif; --disp:"Space Grotesk",system-ui,sans-serif;
+    --mono:"IBM Plex Mono",ui-monospace,monospace;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%}
+  body{background:var(--ink);color:var(--tx);font-family:var(--sans);font-size:14px;line-height:1.5;
+    -webkit-font-smoothing:antialiased}
+  button,input,textarea,select{font-family:inherit;font-size:inherit;color:inherit}
+
+  /* signal bar — lights in the current state colour */
+  #signal{height:3px;width:100%;background:var(--idle);transition:background .3s,opacity .3s;opacity:.5}
+  body[data-state="listening"] #signal{background:var(--listen);opacity:1}
+  body[data-state="thinking"]  #signal{background:var(--think);opacity:1}
+  body[data-state="speaking"]  #signal{background:var(--speak);opacity:1}
+
+  header{display:flex;align-items:center;justify-content:space-between;
+    padding:18px 24px;border-bottom:1px solid var(--line)}
+  .brand{display:flex;align-items:baseline;gap:12px}
+  .brand h1{font-family:var(--disp);font-weight:600;font-size:18px;margin:0;letter-spacing:-.01em}
+  .brand span{font-family:var(--mono);font-size:11px;color:var(--faint);text-transform:uppercase;letter-spacing:.12em}
+  .conn{display:flex;align-items:center;gap:8px;font-family:var(--mono);font-size:12px;color:var(--dim)}
+  .conn .dot{width:7px;height:7px;border-radius:50%;background:var(--err)}
+  .conn.ok .dot{background:var(--speak)}
+
+  main{display:grid;grid-template-columns:340px 1fr;gap:0;height:calc(100% - 3px - 69px)}
+  @media (max-width:760px){main{grid-template-columns:1fr;height:auto}}
+
+  .rail{border-right:1px solid var(--line);padding:22px;display:flex;flex-direction:column;gap:22px;overflow:auto}
+  .stream{padding:22px 24px;overflow:auto;display:flex;flex-direction:column;gap:14px}
+
+  /* state beacon — the signature element */
+  .beacon{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:18px}
+  .beacon .top{display:flex;align-items:center;gap:12px}
+  .orb{width:34px;height:34px;border-radius:50%;background:var(--idle);flex:none;position:relative}
+  .orb::after{content:"";position:absolute;inset:0;border-radius:50%;background:inherit;opacity:.5}
+  body[data-state="listening"] .orb{background:var(--listen)}
+  body[data-state="thinking"]  .orb{background:var(--think)}
+  body[data-state="speaking"]  .orb{background:var(--speak)}
+  @media (prefers-reduced-motion:no-preference){
+    body[data-state="listening"] .orb::after,
+    body[data-state="speaking"]  .orb::after{animation:pulse 1.4s ease-out infinite}
+    body[data-state="thinking"]  .orb::after{animation:pulse 1s ease-out infinite}
+  }
+  @keyframes pulse{0%{transform:scale(1);opacity:.5}70%{transform:scale(2.1);opacity:0}100%{opacity:0}}
+  .beacon .label{font-family:var(--disp);font-weight:500;font-size:16px}
+  .beacon .sub{font-family:var(--mono);font-size:11px;color:var(--faint);text-transform:uppercase;letter-spacing:.1em;margin-top:2px}
+  .beacon .lat{margin-top:14px;font-family:var(--mono);font-size:12px;color:var(--dim);display:flex;justify-content:space-between}
+  .beacon .lat b{color:var(--tx);font-weight:500}
+
+  .controls{display:flex;gap:10px}
+  .btn{flex:1;padding:11px;border-radius:9px;border:1px solid var(--line2);background:var(--panel2);
+    cursor:pointer;font-weight:500;transition:.15s}
+  .btn:hover{border-color:var(--dim)}
+  .btn.primary{background:var(--speak);color:#06281C;border-color:transparent}
+  .btn.primary:hover{filter:brightness(1.07)}
+  .btn.stop{background:transparent;color:var(--err);border-color:rgba(248,113,113,.35)}
+  .btn:disabled{opacity:.4;cursor:not-allowed}
+
+  .field label{display:block;font-family:var(--mono);font-size:11px;color:var(--faint);
+    text-transform:uppercase;letter-spacing:.1em;margin-bottom:7px}
+  select,textarea{width:100%;background:var(--panel);border:1px solid var(--line);border-radius:9px;
+    padding:10px 11px;color:var(--tx);outline:none}
+  select:focus,textarea:focus{border-color:var(--listen)}
+  textarea{resize:vertical;min-height:104px;line-height:1.55}
+  .field .row{display:flex;gap:8px;align-items:center;margin-top:8px}
+  .apply{padding:8px 12px;border-radius:8px;border:1px solid var(--line2);background:var(--panel2);
+    cursor:pointer;font-size:12px}
+  .apply:hover{border-color:var(--dim)}
+  .saved{font-family:var(--mono);font-size:11px;color:var(--speak);opacity:0;transition:.3s}
+  .saved.show{opacity:1}
+
+  .cfg{font-family:var(--mono);font-size:11px;color:var(--faint);border-top:1px solid var(--line);
+    padding-top:16px;display:grid;gap:6px}
+  .cfg div{display:flex;justify-content:space-between;gap:12px}
+  .cfg b{color:var(--dim);font-weight:400}
+
+  /* transcript stream — the hero */
+  .stream h2{font-family:var(--mono);font-size:11px;color:var(--faint);text-transform:uppercase;
+    letter-spacing:.12em;margin:0 0 4px;font-weight:500}
+  .turn{display:grid;grid-template-columns:54px 1fr;gap:14px;align-items:start}
+  .turn .ts{font-family:var(--mono);font-size:11px;color:var(--faint);padding-top:3px;text-align:right}
+  .turn .body{border-left:2px solid var(--line2);padding:2px 0 2px 14px}
+  .turn .who{font-family:var(--mono);font-size:11px;letter-spacing:.08em;text-transform:uppercase;margin-bottom:3px}
+  .turn.remote .body{border-color:var(--remote)} .turn.remote .who{color:var(--remote)}
+  .turn.agent  .body{border-color:var(--agent)}  .turn.agent  .who{color:var(--agent)}
+  .turn .text{color:var(--tx)}
+  .empty{color:var(--faint);font-family:var(--mono);font-size:13px;margin-top:40px;text-align:center;line-height:1.7}
+</style>
+</head>
+<body data-state="idle">
+  <div id="signal"></div>
+
+  <header>
+    <div class="brand">
+      <h1>Parrot AI</h1><span>staging</span>
+    </div>
+    <div class="conn" id="conn"><span class="dot"></span><span id="connText">backend disconnected</span></div>
+  </header>
+
+  <main>
+    <section class="rail">
+      <div class="beacon">
+        <div class="top">
+          <div class="orb"></div>
+          <div>
+            <div class="label" id="stateLabel">Idle</div>
+            <div class="sub" id="stateSub">no active call</div>
+          </div>
+        </div>
+        <div class="lat"><span>response latency</span><b id="lat">—</b></div>
+      </div>
+
+      <div class="controls">
+        <button class="btn primary" id="startBtn" disabled>Start agent</button>
+        <button class="btn stop" id="stopBtn" disabled>Stop</button>
+      </div>
+
+      <div class="field">
+        <label>Input · hears the caller</label>
+        <select id="inDev"><option>—</option></select>
+      </div>
+      <div class="field">
+        <label>Output · speaks on the call</label>
+        <select id="outDev"><option>—</option></select>
+      </div>
+
+      <div class="field">
+        <label>System prompt</label>
+        <textarea id="prompt" placeholder="Define how the agent behaves…"></textarea>
+        <div class="row">
+          <button class="apply" id="applyPrompt">Apply prompt</button>
+          <span class="saved" id="saved">saved</span>
+        </div>
+      </div>
+
+      <div class="cfg" id="cfg">
+        <div><span>LLM</span><b id="cfgLlm">deepseek-chat</b></div>
+        <div><span>STT</span><b id="cfgStt">whisper · es</b></div>
+        <div><span>TTS</span><b id="cfgTts">piper</b></div>
+      </div>
+    </section>
+
+    <section class="stream" id="stream">
+      <h2>Live transcript</h2>
+      <div class="empty" id="empty">No activity yet.<br>Start the agent and place the call in Aircall.</div>
+    </section>
+  </main>
+
+<script>
+const $ = id => document.getElementById(id);
+const STATES = {
+  idle:      ["Idle","no active call"],
+  listening: ["Listening","capturing the caller"],
+  thinking:  ["Thinking","querying DeepSeek"],
+  speaking:  ["Speaking","responding on the call"],
+};
+let running = false, ws = null;
+
+function setState(s){
+  document.body.dataset.state = s;
+  const [l,sub] = STATES[s] || STATES.idle;
+  $("stateLabel").textContent = l; $("stateSub").textContent = sub;
+}
+function setRunning(on){
+  running = on;
+  $("startBtn").disabled = on || !ws;
+  $("stopBtn").disabled = !on;
+  if(!on) setState("idle");
+}
+function fillDevices(sel, list, current){
+  sel.innerHTML = "";
+  (list||[]).forEach(n=>{
+    const o=document.createElement("option"); o.value=n; o.textContent=n;
+    if(n===current) o.selected=true; sel.appendChild(o);
+  });
+}
+function addTurn(role, text, ts){
+  $("empty")?.remove();
+  const wrap=document.createElement("div");
+  wrap.className="turn "+(role==="assistant"?"agent":"remote");
+  const when = ts || new Date().toLocaleTimeString("en-GB",{hour:"2-digit",minute:"2-digit",second:"2-digit"});
+  wrap.innerHTML =
+    '<div class="ts">'+when+'</div>'+
+    '<div class="body"><div class="who">'+(role==="assistant"?"agent":"caller")+
+    '</div><div class="text"></div></div>';
+  wrap.querySelector(".text").textContent = text;
+  $("stream").appendChild(wrap);
+  $("stream").scrollTop = $("stream").scrollHeight;
+}
+
+function connect(){
+  const url = (location.protocol==="https:"?"wss":"ws")+"://"+(location.host||"localhost:8000")+"/ws";
+  ws = new WebSocket(url);
+  ws.onopen = ()=>{ $("conn").classList.add("ok"); $("connText").textContent="backend connected"; setRunning(running); };
+  ws.onclose = ()=>{ $("conn").classList.remove("ok"); $("connText").textContent="backend disconnected";
+    ws=null; $("startBtn").disabled=true; setTimeout(connect,1500); };
+  ws.onmessage = e=>{
+    let m; try{ m=JSON.parse(e.data); }catch{ return; }
+    switch(m.type){
+      case "hello":
+        fillDevices($("inDev"), m.devices?.input, m.config?.input_device);
+        fillDevices($("outDev"), m.devices?.output, m.config?.output_device);
+        if(m.config?.prompt) $("prompt").value = m.config.prompt;
+        if(m.config?.llm) $("cfgLlm").textContent = m.config.llm;
+        if(m.config?.stt) $("cfgStt").textContent = m.config.stt;
+        if(m.config?.tts) $("cfgTts").textContent = m.config.tts;
+        setRunning(!!m.running); break;
+      case "state":      setState(m.value); break;
+      case "transcript": addTurn(m.role, m.text, m.ts); break;
+      case "latency":    $("lat").textContent = m.ms+" ms"; break;
+      case "running":    setRunning(!!m.value); break;
+      case "error":      $("connText").textContent = "error: "+m.message; break;
+    }
+  };
+}
+function send(obj){ if(ws && ws.readyState===1) ws.send(JSON.stringify(obj)); }
+
+$("startBtn").onclick = ()=> send({type:"start", input_device:$("inDev").value, output_device:$("outDev").value});
+$("stopBtn").onclick  = ()=> send({type:"stop"});
+$("applyPrompt").onclick = ()=>{
+  send({type:"set_prompt", text:$("prompt").value});
+  const s=$("saved"); s.classList.add("show"); setTimeout(()=>s.classList.remove("show"),1400);
+};
+
+connect();
+</script>
+</body>
+</html>
