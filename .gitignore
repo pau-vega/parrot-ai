@@ -1,20 +1,3 @@
-# Python
-__pycache__/
-*.py[cod]
-*.pyo
-*.pyd
-.Python
-*.egg
-*.egg-info/
-dist/
-build/
-.eggs/
-
-# Virtual environment
-.venv/
-venv/
-env/
-
 # Environment variables
 .env
 .env.*
@@ -25,14 +8,17 @@ env/
 *.onnx.json
 *.bin
 
-# Broken upstream piper macOS binary (unused; we synth via python/tts_piper.py)
-/vendor/
-
 # Node
 node_modules/
 .turbo/
 apps/backend/dist/
 apps/backend/*.tsbuildinfo
+
+# Local Claude config / vendored skills (per-developer, not shared)
+.agents/
+.claude/skills/
+.claude/settings.local.json
+skills-lock.json
 
 # macOS
 .DS_Store
