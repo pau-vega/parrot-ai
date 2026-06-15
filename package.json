@@ -1,0 +1,18 @@
+{
+  "name": "parrot-ai",
+  "private": true,
+  "packageManager": "pnpm@11.7.0",
+  "engines": {
+    "node": ">=20",
+    "pnpm": ">=9"
+  },
+  "devDependencies": {
+    "turbo": "latest"
+  },
+  "scripts": {
+    "lint": "turbo check-types",
+    "build": "turbo build",
+    "dev": "turbo dev",
+    "typecheck": "turbo check-types"
+  }
+}
