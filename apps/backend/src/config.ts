@@ -4,18 +4,14 @@ import { resolve } from "path";
 const REPO_ROOT = resolve(__dirname, "../../../");
 
 /**
- * Single source of truth for the non-realtime pipeline config.
+ * Single source of truth for the pipeline config: the persona prompt plus the
+ * model/voice/LLM/device defaults the rt/ modules and the server read.
  *
- * The realtime path (STT → VAD → LLM → TTS → audio) still lives in Python for
- * now (see the migration plan), but the values that parameterize it — and the
- * persona prompt — are owned here. Node passes them to the Python child as env
- * vars on spawn (see PythonPipelineBackend), so there is one place to edit them.
- *
- * The persona prompt lives in `prompts/default-es.txt` so both this file and the
- * standalone Python `agent.py` read the SAME text (no duplicate-prompt drift).
+ * The persona prompt lives in `prompts/default-es.txt` so it's editable in one
+ * place and not duplicated in code.
  */
 
-// Persona prompt: Spanish on purpose (Whisper language=ES + es_ES Piper voice).
+// Persona prompt: Spanish on purpose (Whisper language=es + es_ES Piper voice).
 export const DEFAULT_PROMPT = readFileSync(
   resolve(REPO_ROOT, "prompts/default-es.txt"),
   "utf8",

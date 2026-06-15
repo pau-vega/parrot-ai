@@ -19,12 +19,12 @@ if [ ! -f models/silero_vad.onnx ]; then
     https://raw.githubusercontent.com/snakers4/silero-vad/master/src/silero_vad/data/silero_vad.onnx
 fi
 
-# Piper TTS voice (es_ES davefx, medium) — used by python/tts_piper.py.
+# Piper TTS voice (es_ES davefx, medium) — used by rt/tts.ts (onnxruntime-node).
 PIPER_BASE=https://huggingface.co/rhasspy/piper-voices/resolve/main/es/es_ES/davefx/medium
-if [ ! -f python/es_ES-davefx-medium.onnx ]; then
+if [ ! -f models/es_ES-davefx-medium.onnx ]; then
   echo "↓ es_ES-davefx-medium.onnx (~63MB)"
-  curl -fSL -o python/es_ES-davefx-medium.onnx "$PIPER_BASE/es_ES-davefx-medium.onnx"
-  curl -fSL -o python/es_ES-davefx-medium.onnx.json "$PIPER_BASE/es_ES-davefx-medium.onnx.json"
+  curl -fSL -o models/es_ES-davefx-medium.onnx "$PIPER_BASE/es_ES-davefx-medium.onnx"
+  curl -fSL -o models/es_ES-davefx-medium.onnx.json "$PIPER_BASE/es_ES-davefx-medium.onnx.json"
 fi
 
-echo "✓ models ready (./models + python/ piper voice)"
+echo "✓ models ready in ./models"

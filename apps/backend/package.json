@@ -9,6 +9,7 @@
     "check-types": "tsc --noEmit"
   },
   "dependencies": {
+    "@diffusionstudio/piper-wasm": "^1.0.0",
     "express": "^5.1.0",
     "naudiodon-neo": "^2.4.1",
     "onnxruntime-node": "^1.26.0",

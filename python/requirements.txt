@@ -1,5 +1,0 @@
-# The Node realtime pipeline (apps/backend) owns STT/LLM/VAD/audio. The only
-# Python left is python/tts_piper.py — a thin Piper synth helper, because Piper
-# ships no working standalone binary on macOS arm64. piper-tts pulls in its own
-# onnxruntime + numpy.
-piper-tts==1.4.2

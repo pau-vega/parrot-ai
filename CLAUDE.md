@@ -27,14 +27,10 @@ remote AI ─(call)─ Aircall
 
 ## Architecture
 
-The realtime pipeline is **in-process Node/TypeScript** (it replaced an earlier
-Pipecat/Python implementation). The only remaining Python is a thin Piper TTS
-synth helper — Piper ships no working standalone binary on macOS arm64, and
-synthesis is a stateless text→PCM step off the realtime control loop, so keeping
-it as a child process does not split the audio or turn-taking path.
-
-Audio never crosses a process boundary except that one stateless synth call, so
-the VAD that triggers barge-in and the output stream it interrupts live together.
+The realtime pipeline is **fully in-process Node/TypeScript** (it replaced an
+earlier Pipecat/Python implementation — there is no Python left). STT, VAD, LLM,
+TTS, audio I/O, and the turn engine all run in the backend process, so the VAD
+that triggers barge-in and the output stream it interrupts live together.
 
 ## Repository structure (pnpm monorepo + Turborepo)
 
@@ -45,8 +41,9 @@ parrot-ai/
   prompts/
     default-es.txt      ← canonical Spanish persona prompt (single source)
   models/               ← git-ignored weights, fetched via tools/fetch-models.sh
-    ggml-base.bin        ← whisper.cpp STT model
-    silero_vad.onnx      ← Silero v5 VAD model
+    ggml-base.bin                  ← whisper.cpp STT model
+    silero_vad.onnx                ← Silero v5 VAD model
+    es_ES-davefx-medium.onnx(.json)← Piper TTS voice
   tools/
     fetch-models.sh     ← downloads STT/VAD models + Piper voice
   apps/
@@ -64,13 +61,8 @@ parrot-ai/
           vad.ts          ← Silero v5 via onnxruntime-node, turn-taking hysteresis
           stt.ts          ← whisper.cpp (Metal) via smart-whisper
           llm.ts          ← DeepSeek streaming via openai SDK, sentence chunking
-          tts.ts          ← client for the Piper synth helper (framed PCM over stdio)
+          tts.ts          ← Piper TTS: piper_phonemize WASM → onnxruntime-node (pure Node)
           orchestrator.ts ← turn engine: VAD→STT→LLM→TTS→playback + barge-in
-  python/
-    tts_piper.py        ← thin persistent Piper synth (text→PCM); the only Python left
-    requirements.txt    ← just piper-tts
-    es_ES-davefx-medium.onnx       ← Piper voice (git-ignored; fetch-models.sh)
-    es_ES-davefx-medium.onnx.json
 ```
 
 ## Stack
@@ -94,18 +86,11 @@ parrot-ai/
   `model=deepseek-chat`). Use **deepseek-chat**, never the reasoner (R1): it
   overthinks for conversation. `max_tokens=160`. Streams tokens and yields
   **sentence chunks** so TTS can start before the full reply lands.
-- **TTS:** Piper via `python/tts_piper.py` (a persistent child; voice model warm).
-  Voice `es_ES-davefx-medium`; warm synth ~tens of ms per sentence.
-
-## TTS helper protocol (Node ↔ python/tts_piper.py)
-
-`rt/tts.ts` spawns `.venv/bin/python python/tts_piper.py` with `PIPER_VOICE_ONNX` set.
-
-- **Node → helper (stdin):** one UTF-8 JSON line per request: `{"text": "..."}`.
-- **helper → Node (stdout):** per request, `[u32 LE sample_rate][u32 LE byte_len]`
-  then `byte_len` bytes of signed-16-bit little-endian mono PCM (`byte_len==0` =
-  nothing to speak).
-- **stderr** is for logs only — never write anything else to the helper's stdout.
+- **TTS:** Piper, **pure Node** (`rt/tts.ts`). Text → phoneme ids via the real
+  `piper_phonemize` compiled to WASM (`@diffusionstudio/piper-wasm`, so phonemes
+  match the trained voice — the espeak-ng CLI does **not** match), then VITS
+  inference via `onnxruntime-node` (voice `es_ES-davefx-medium`, scales
+  `[0.667, 1.0, 0.8]`, 22050Hz). Warmed on start; warm synth ~30ms per sentence.
 
 ## WebSocket protocol (`/ws` — browser-facing)
 
@@ -135,19 +120,15 @@ Internally `NodePipelineBackend` emits the same set as `PipelineEvent` (plus an
 ## How to run
 
 Requirements: macOS (Apple Silicon), `DEEPSEEK_API_KEY`, BlackHole 2ch and 16ch,
-Node.js ≥ 20, pnpm ≥ 9, **Python 3.12** (piper-tts), and a native toolchain
-(`cmake` + Xcode Command Line Tools) — the audio/STT addons build **from source**
-(no prebuilds for current Node on arm64).
+Node.js ≥ 20, pnpm ≥ 9, and a native toolchain (`cmake` + Xcode Command Line
+Tools) — the audio/STT addons build **from source** (no prebuilds for current
+Node on arm64). No Python.
 
 ```bash
 # System deps (once)
 brew install --cask blackhole-2ch blackhole-16ch   # audio driver (prompts for password)
 brew install cmake                                  # builds whisper.cpp + naudiodon-neo
 xcode-select --install                              # if not already present
-
-# Python helper env (once) — only piper-tts
-/opt/homebrew/bin/python3.12 -m venv .venv
-.venv/bin/python -m pip install -r python/requirements.txt
 
 # Node env (once) — native addons build during install (allowBuilds in pnpm-workspace.yaml)
 pnpm install
@@ -175,8 +156,13 @@ across the workspace (no separate linter).
   dir is the fallback.
 - **Use `naudiodon-neo`, not `naudiodon`** — the original `naudiodon` segfaults in
   `getDevices()` on modern Node (old NAN addon vs new V8).
-- **Piper has no working standalone binary on macOS arm64** (the release ships
-  without its dylibs), hence the `python/tts_piper.py` helper.
+- **TTS phonemization must use `piper_phonemize`** (the WASM build), not the
+  `espeak-ng` CLI. The CLI's `--ipa` output drops phonemes piper expects (e.g.
+  palatalization, punctuation), so it produces degraded audio. The WASM build is
+  the same C++ lib piper uses → phoneme ids match the trained voice.
+- Piper has no working standalone binary on macOS arm64 (the release ships without
+  its dylibs) — irrelevant now (TTS is in-process WASM+onnx), but don't go chasing
+  the binary.
 - BlackHole input is opened at 16kHz and output at 22050Hz; opening the same
   BlackHole device for both directions **in one process** can fail with PortAudio
   AUHAL `err=-50`. In production the two directions are separate devices, so this
@@ -187,18 +173,12 @@ across the workspace (no separate linter).
   (`rt/audio.ts resolveDevice`).
 - Don't try to capture Aircall's WebRTC from the browser: it's cross-origin. The
   valid path is OS-level virtual audio.
-- `python/tts_piper.py` stdout is the **framed-PCM channel** — only the helper's
-  audio protocol goes there; use `sys.stderr` for any debug output.
-- The venv was created under an old path, so `.venv/bin/<console-script>` shebangs
-  (e.g. `pip`, `piper`) may be stale — use `.venv/bin/python -m <tool>` instead.
 
 ## TODO
 
 - [ ] **Hot reload** of the system prompt without restarting the agent
       (right now `set_prompt` only applies on the next "Start").
 - [ ] **Logging/download** of the per-session transcript (role + timestamps).
-- [ ] Optional: pure-Node TTS (onnxruntime-node + espeak-ng) to drop the last
-      Python dependency.
 
 ## Conventions
 
