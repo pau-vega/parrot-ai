@@ -10,6 +10,10 @@
   },
   "dependencies": {
     "express": "^5.1.0",
+    "naudiodon-neo": "^2.4.1",
+    "onnxruntime-node": "^1.26.0",
+    "openai": "^6.42.0",
+    "smart-whisper": "^0.8.1",
     "ws": "^8.18.0"
   },
   "devDependencies": {

@@ -3,6 +3,7 @@ import { createServer } from "http";
 import { WebSocketServer, WebSocket } from "ws";
 import { resolve } from "path";
 import { PythonPipelineBackend } from "./pipeline";
+import { NodePipelineBackend } from "./node-backend";
 import { backendKind } from "./backend";
 import type { PipelineBackend } from "./backend";
 import { DEFAULT_INPUT_DEVICE, DEFAULT_OUTPUT_DEVICE, LLM_MODEL } from "./config";
@@ -31,12 +32,8 @@ app.use(express.static(FRONTEND_DIR));
 // --- pipeline process -------------------------------------------------------
 
 function createBackend(): PipelineBackend {
-  const kind = backendKind();
-  if (kind === "node") {
-    // Phase 2 of the migration lands the in-process Node pipeline here.
-    throw new Error("PIPELINE_BACKEND=node is not implemented yet (see migration plan).");
-  }
-  return new PythonPipelineBackend();
+  // Full in-process Node pipeline (Phase 2) vs the Python child process.
+  return backendKind() === "node" ? new NodePipelineBackend() : new PythonPipelineBackend();
 }
 
 const pipeline = createBackend();
