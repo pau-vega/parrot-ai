@@ -33,6 +33,10 @@ export class SileroVAD {
 
   async load(): Promise<void> {
     this.session = await ort.InferenceSession.create(MODEL);
+    const names = this.session.outputNames;
+    if (!names.includes("stateN") || !names.includes("output")) {
+      throw new Error(`SileroVAD: unexpected model outputs [${names.join(", ")}]; expected "output" and "stateN"`);
+    }
   }
 
   /** Run one 512-sample frame; returns {prob, started, ended} edge flags. */

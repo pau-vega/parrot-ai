@@ -8,6 +8,7 @@ import { PiperTTS } from "./tts";
 
 const PREROLL_FRAMES = 10; // ~0.32s kept before speech start (VAD reacts slightly late)
 const MIN_UTTERANCE_SAMPLES = STT_SAMPLE_RATE * 0.3; // ignore <0.3s blips
+const MAX_FRAME_QUEUE = 8; // drop frames beyond this depth to bound memory under load
 
 /**
  * In-process realtime turn engine: VAD → STT → LLM → TTS → playback, with
@@ -31,7 +32,10 @@ export class Orchestrator extends EventEmitter {
   private preRoll: Float32Array[] = [];
   private abort?: AbortController;
   private frameChain: Promise<void> = Promise.resolve();
+  private frameQueueDepth = 0;
   private tUserStopped = 0;
+  // Monotonic turn counter: handleTurn checks this to detect stale turns.
+  private turnId = 0;
 
   constructor(
     private prompt: string,
@@ -58,10 +62,18 @@ export class Orchestrator extends EventEmitter {
     this.output = new AudioOutput(this.outputDevice, this.tts.sampleRate);
     this.input = new AudioInput(this.inputDevice);
     this.input.on("frame", (frame: Float32Array) => {
-      // Serialize frame handling so VAD state stays consistent under async work.
-      this.frameChain = this.frameChain.then(() => this.onFrame(frame)).catch((err) => {
-        this.emitEvent({ type: "error", message: String(err?.message ?? err) });
-      });
+      // Drop frames when the queue is full to bound memory under load.
+      if (this.frameQueueDepth >= MAX_FRAME_QUEUE) return;
+      this.frameQueueDepth++;
+      this.frameChain = this.frameChain
+        .then(() => this.onFrame(frame))
+        .catch((err: unknown) => {
+          const message = err instanceof Error ? err.message : String(err);
+          this.emitEvent({ type: "error", message });
+        })
+        .finally(() => {
+          this.frameQueueDepth--;
+        });
     });
     this.input.start();
     this.emitEvent({ type: "running", value: true });
@@ -91,7 +103,8 @@ export class Orchestrator extends EventEmitter {
       this.tUserStopped = Date.now();
       const audio = Float32Array.from(this.userAudio);
       this.userAudio = [];
-      void this.handleTurn(audio);
+      const thisTurnId = ++this.turnId;
+      void this.handleTurn(audio, thisTurnId);
     }
   }
 
@@ -101,25 +114,29 @@ export class Orchestrator extends EventEmitter {
     this.output?.stop();
   }
 
-  private async handleTurn(audio: Float32Array): Promise<void> {
+  private async handleTurn(audio: Float32Array, turnId: number): Promise<void> {
+    if (turnId !== this.turnId) return;
     this.mode = "thinking";
     this.setState("thinking");
-
-    const text = await this.stt.transcribe(audio);
-    if (!text) {
-      this.mode = "listening";
-      this.setState("listening");
-      return;
-    }
-    this.emitEvent({ type: "transcript", role: "user", text });
-
+    // Set abort early so bargeIn() can interrupt STT if needed.
     this.abort = new AbortController();
     const signal = this.abort.signal;
-    this.mode = "speaking";
-    let firstAudio = true;
     let full = "";
 
     try {
+      const text = await this.stt.transcribe(audio);
+      if (!text || signal.aborted) {
+        if (turnId === this.turnId) {
+          this.mode = "listening";
+          this.setState("listening");
+        }
+        return;
+      }
+      this.emitEvent({ type: "transcript", role: "user", text });
+
+      this.mode = "speaking";
+      let firstAudio = true;
+
       for await (const sentence of this.llm.respond(text, signal)) {
         if (signal.aborted) break;
         full += (full ? " " : "") + sentence;
@@ -130,16 +147,22 @@ export class Orchestrator extends EventEmitter {
           this.setState("speaking");
           this.emitEvent({ type: "latency", ms: Date.now() - this.tUserStopped });
         }
-        await this.output!.play(pcm);
+        // Capture output ref before await so a concurrent close() doesn't race.
+        const output = this.output;
+        if (output) await output.play(pcm);
       }
-    } catch (err) {
-      if (!signal.aborted) this.emitEvent({ type: "error", message: String((err as Error)?.message ?? err) });
+    } catch (err: unknown) {
+      if (!signal.aborted) {
+        const message = err instanceof Error ? err.message : String(err);
+        this.emitEvent({ type: "error", message });
+      }
     }
 
     if (full.trim() && !signal.aborted) {
       this.emitEvent({ type: "transcript", role: "assistant", text: full.trim() });
     }
-    if (this.mode === "speaking") {
+    // Only reset mode if this turn is still the current one and it owns "speaking".
+    if (this.mode === "speaking" && turnId === this.turnId) {
       this.mode = "listening";
       this.setState("listening");
     }

@@ -1,6 +1,6 @@
 // Minimal ambient types for naudiodon-neo (ships no TypeScript types).
 declare module "naudiodon-neo" {
-  import { Readable, Writable } from "stream";
+  import { Duplex } from "stream";
 
   export interface Device {
     id: number;
@@ -21,12 +21,11 @@ declare module "naudiodon-neo" {
     closeOnError?: boolean;
   }
 
-  // AudioIO is a Readable (inOptions) or Writable (outOptions) stream.
-  export class AudioIO extends Readable implements Pick<Writable, "write"> {
+  // AudioIO acts as Readable (inOptions) or Writable (outOptions); Duplex covers both.
+  export class AudioIO extends Duplex {
     constructor(opts: { inOptions?: IoOptions; outOptions?: IoOptions });
     start(): void;
     quit(cb?: () => void): void;
     abort(cb?: () => void): void;
-    write(chunk: Buffer): boolean;
   }
 }
