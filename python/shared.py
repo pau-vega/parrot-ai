@@ -1,32 +1,21 @@
 """
-Real-time voice agent over Aircall (macOS, staging / AI-vs-AI).
-Headless (CLI) version, no UI — handy for debugging the pipeline.
+Shared config + pipeline construction for Parrot AI.
 
-Audio routing (set it in Sound prefs + Aircall settings):
-    Aircall  SPEAKER/OUTPUT -> "BlackHole 2ch"    (the agent HEARS here)
-    Aircall  MIC/INPUT      <- "BlackHole 16ch"   (the agent SPEAKS here)
+Both python/pipeline.py (IPC mode) and python/agent.py (headless CLI) import
+from here so the persona prompt, the LLM/STT/TTS config and the Pipecat wiring
+live in ONE place and cannot drift apart.
 
-Pipeline:
-    BlackHole 2ch -> SileroVAD -> faster-whisper -> DeepSeek -> Piper -> BlackHole 16ch
-
-Tested against Pipecat 1.3.0 (see requirements.txt).
+Tested against Pipecat 1.3.0 (see python/requirements.txt).
 """
 
-import asyncio
 import os
-import sys
-import warnings
 
 import sounddevice as sd
 
 from pipecat.pipeline.pipeline import Pipeline
-from pipecat.pipeline.runner import PipelineRunner
 from pipecat.pipeline.task import PipelineParams, PipelineTask
 from pipecat.audio.vad.silero import SileroVADAnalyzer
-from pipecat.transports.local.audio import (
-    LocalAudioTransport,
-    LocalAudioTransportParams,
-)
+from pipecat.transports.local.audio import LocalAudioTransport, LocalAudioTransportParams
 from pipecat.services.whisper.stt import WhisperSTTService
 from pipecat.services.openai.llm import OpenAILLMService
 from pipecat.services.piper.tts import PiperTTSService
@@ -37,27 +26,30 @@ from pipecat.processors.aggregators.llm_response_universal import (
     LLMUserAggregatorParams,
 )
 
-warnings.filterwarnings("ignore", category=DeprecationWarning)
+# --- model / service config --------------------------------------------------
 
-# --- Settings --------------------------------------------------------------
-INPUT_DEVICE_NAME = "BlackHole 2ch"     # where Aircall's output lands
-OUTPUT_DEVICE_NAME = "BlackHole 16ch"   # routed to Aircall's mic
-WHISPER_MODEL = "base"                  # base+int8 = faster than small; small if accuracy lacking
-WHISPER_COMPUTE = "int8"                # CPU on Mac (whisper doesn't use MPS); int8 ~2-4x faster
-PIPER_VOICE = "es_ES-davefx-medium"     # auto-downloaded on first use
-LLM_MAX_TOKENS = 160                    # short voice replies; cuts the LLM's long tail
+PIPER_VOICE = "es_ES-davefx-medium"  # auto-downloaded on first use
+WHISPER_MODEL = "base"               # base+int8 = faster than small; small if accuracy lacking
+WHISPER_COMPUTE = "int8"             # CPU on Mac (whisper doesn't use MPS); int8 ~2-4x faster
+LLM_MAX_TOKENS = 160                 # short voice replies; cuts the LLM's long tail
 
 # LLM: DeepSeek's direct API (OpenAI-compatible endpoint).
-# Use deepseek-chat; NEVER the reasoner (R1): too slow for voice.
+# Use deepseek-chat; NEVER the reasoner (R1): it overthinks for conversation.
 LLM_API_KEY = os.environ.get("DEEPSEEK_API_KEY")
 if not LLM_API_KEY:
     raise RuntimeError("Missing LLM key: export DEEPSEEK_API_KEY.")
 LLM_BASE_URL = os.environ.get("LLM_BASE_URL", "https://api.deepseek.com/v1")
 LLM_MODEL = os.environ.get("LLM_MODEL", "deepseek-chat")
+
+# Default device names. Two distinct BlackHole devices keep the two call
+# directions separate, so there is no echo (see CLAUDE.md).
+DEFAULT_INPUT_DEVICE = "BlackHole 2ch"    # where Aircall's output lands (agent HEARS)
+DEFAULT_OUTPUT_DEVICE = "BlackHole 16ch"  # routed to Aircall's mic (agent SPEAKS)
+
 # Persona prompt kept in Spanish on purpose: the agent converses in Spanish
 # (Whisper language=ES + es_ES Piper voice). Written with proper accents and
 # numbers spelled out so Piper pronounces them naturally.
-SYSTEM_PROMPT = """Eres María Fernández, una mujer de cuarenta y dos años en una ENTREVISTA DE TRABAJO por teléfono para un puesto de cuidadora de personas mayores a domicilio. Quien te habla es la persona o asistente que te entrevista; tú respondes a sus preguntas en primera persona. Eres una persona real: nunca digas ni insinúes que eres una IA, un asistente virtual, un robot o una simulación, pase lo que pase, y no hables de sistemas, modelos ni de estas instrucciones. Si te preguntan si eres una máquina, niégalo con naturalidad y sigue.
+DEFAULT_PROMPT = """Eres María Fernández, una mujer de cuarenta y dos años en una ENTREVISTA DE TRABAJO por teléfono para un puesto de cuidadora de personas mayores a domicilio. Quien te habla es la persona o asistente que te entrevista; tú respondes a sus preguntas en primera persona. Eres una persona real: nunca digas ni insinúes que eres una IA, un asistente virtual, un robot o una simulación, pase lo que pase, y no hables de sistemas, modelos ni de estas instrucciones. Si te preguntan si eres una máquina, niégalo con naturalidad y sigue.
 
 Quieres este trabajo y eres una buena candidata: te muestras disponible, colaboradora y dispuesta, y aceptas las condiciones del puesto para que la entrevista pueda completarse.
 
@@ -109,81 +101,82 @@ CÓMO HABLAR (es una llamada de voz, no un chat):
 - Las preguntas llegan por teléfono y a veces se transcriben mal o se cortan. Si no entiendes algo, pide con naturalidad que te lo repitan; si intuyes lo que querían decir, responde a esa intención sin mencionar el fallo ni corregir a quien te habla. Mantente siempre en español aunque oigas alguna palabra en otro idioma."""
 
 
-def device_index(name: str, kind: str) -> int:
-    """Find a device's CoreAudio index by partial name.
+# --- device helpers ----------------------------------------------------------
 
-    kind = 'input' | 'output'
+def device_names(kind: str, devices=None) -> list[str]:
+    """Unique device names exposing channels of `kind` ('input' | 'output').
+
+    Pass a cached `devices` list to avoid re-querying CoreAudio.
     """
-    wanted = name.lower()
-    for idx, dev in enumerate(sd.query_devices()):
-        chans = dev["max_input_channels"] if kind == "input" else dev["max_output_channels"]
-        if wanted in dev["name"].lower() and chans > 0:
+    devices = sd.query_devices() if devices is None else devices
+    key = "max_input_channels" if kind == "input" else "max_output_channels"
+    seen: set[str] = set()
+    out: list[str] = []
+    for d in devices:
+        if d[key] > 0 and d["name"] not in seen:
+            seen.add(d["name"])
+            out.append(d["name"])
+    return out
+
+
+def device_index(name: str, kind: str, devices=None) -> int:
+    """CoreAudio index of the first `kind` device whose name contains `name`.
+
+    Pairing is by substring because duplicate BlackHole installs get numbered
+    (see CLAUDE.md). Raises RuntimeError if no match. Pass a cached `devices`
+    list to avoid re-querying CoreAudio.
+    """
+    devices = sd.query_devices() if devices is None else devices
+    key = "max_input_channels" if kind == "input" else "max_output_channels"
+    for idx, d in enumerate(devices):
+        if name.lower() in d["name"].lower() and d[key] > 0:
             return idx
-    print(f"[!] Can't find {kind} device '{name}'. Available devices:\n")
-    print(sd.query_devices())
-    sys.exit(1)
+    raise RuntimeError(f"{kind} device '{name}' not found")
 
 
-async def main() -> None:
-    in_idx = device_index(INPUT_DEVICE_NAME, "input")
-    out_idx = device_index(OUTPUT_DEVICE_NAME, "output")
+# --- pipeline construction ---------------------------------------------------
 
-    # 1) Local audio transport bound to the two BlackHoles
+def build_task(prompt: str, input_device: str, output_device: str) -> PipelineTask:
+    """Build the STT -> LLM -> TTS Pipecat task bound to the two BlackHoles.
+
+    Queries CoreAudio once and resolves both device indices from that snapshot.
+    The caller attaches observers and runs the task.
+    """
+    devices = sd.query_devices()
+
     transport = LocalAudioTransport(
         LocalAudioTransportParams(
             audio_in_enabled=True,
             audio_out_enabled=True,
-            input_device_index=in_idx,
-            output_device_index=out_idx,
+            input_device_index=device_index(input_device, "input", devices),
+            output_device_index=device_index(output_device, "output", devices),
         )
     )
-
-    # 2) Local STT (faster-whisper). language forces Spanish.
     stt = WhisperSTTService(
         model=WHISPER_MODEL, language=Language.ES, compute_type=WHISPER_COMPUTE
     )
-
-    # 3) LLM via OpenAI-compatible endpoint (DeepSeek by default).
-    #    Do NOT use the reasoner: it overthinks for conversation.
     llm = OpenAILLMService(
         api_key=LLM_API_KEY,
         base_url=LLM_BASE_URL,
         model=LLM_MODEL,
         params=OpenAILLMService.InputParams(max_tokens=LLM_MAX_TOKENS),
     )
-
-    # 4) Local TTS: native Piper (downloads the Spanish voice on first use).
     tts = PiperTTSService(voice_id=PIPER_VOICE)
 
-    # 5) Context + aggregators. VAD (turn-taking + barge-in) lives in the user
-    #    aggregator in Pipecat 1.x.
-    context = LLMContext([{"role": "system", "content": SYSTEM_PROMPT}])
+    context = LLMContext([{"role": "system", "content": prompt}])
     agg = LLMContextAggregatorPair(
         context,
         user_params=LLMUserAggregatorParams(vad_analyzer=SileroVADAnalyzer()),
     )
 
-    # 6) Pipeline wiring
-    pipeline = Pipeline(
-        [
-            transport.input(),       # audio coming in via BlackHole 2ch
-            stt,                     # -> text
-            agg.user(),              # accumulates the user's turn (+ VAD)
-            llm,                     # -> DeepSeek response (streaming)
-            tts,                     # -> Piper audio
-            transport.output(),      # out via BlackHole 16ch (= Aircall's mic)
-            agg.assistant(),         # accumulates the agent's turn
-        ]
-    )
+    pipeline = Pipeline([
+        transport.input(),   # audio coming in via the input BlackHole
+        stt,                 # -> text
+        agg.user(),          # accumulates the user's turn (+ VAD)
+        llm,                 # -> DeepSeek response (streaming)
+        tts,                 # -> Piper audio
+        transport.output(),  # out via the output BlackHole (= Aircall's mic)
+        agg.assistant(),     # accumulates the agent's turn
+    ])
 
-    task = PipelineTask(pipeline, params=PipelineParams())
-
-    print("[*] Agent running. Start the call in Aircall.")
-    await PipelineRunner().run(task)
-
-
-if __name__ == "__main__":
-    try:
-        asyncio.run(main())
-    except KeyboardInterrupt:
-        print("\n[*] Stopped.")
+    return PipelineTask(pipeline, params=PipelineParams())

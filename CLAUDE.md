@@ -25,8 +25,35 @@ remote AI ─(call)─ Aircall
   Pipecat (output)        ->  BlackHole 16ch ->  Aircall MIC        [the agent SPEAKS]
 ```
 
+## Repository structure (pnpm monorepo + Turborepo)
+
+```
+parrot-ai/
+  pnpm-workspace.yaml   ← declares apps/*
+  turbo.json            ← Turborepo task pipeline (build, dev, check-types)
+  apps/
+    frontend/           ← vanilla JS UI (no build step)
+      index.html
+    backend/            ← Node.js/TypeScript server
+      src/
+        index.ts        ← Express + WebSocket, serves frontend/
+        pipeline.ts     ← spawns + manages python/pipeline.py as child process
+        types.ts        ← TypeScript types for all WS and IPC messages
+  python/
+    shared.py           ← config, persona prompt, device helpers, build_task() (single source)
+    pipeline.py         ← Pipecat pipeline + stdin/stdout IPC (imports shared)
+    agent.py            ← headless CLI agent (no UI, useful for debugging; imports shared)
+    requirements.txt
+    es_ES-davefx-medium.onnx       ← cached Piper voice model
+    es_ES-davefx-medium.onnx.json
+```
+
 ## Stack
 
+- **Backend (Node.js):** Express serves static `apps/frontend/`, `ws` handles `/ws` WebSocket.
+  Manages the Python pipeline process lifecycle and bridges browser ↔ pipeline via IPC.
+- **Pipeline (Python):** Pipecat orchestrates STT → LLM → TTS. Communicates with the
+  Node backend via stdin/stdout newline-delimited JSON (IPC). No FastAPI or WebSocket.
 - **Orchestration / real time:** Pipecat (Silero VAD for turn-taking + barge-in).
 - **STT:** local faster-whisper, `model="base"`, `compute_type="int8"`,
   `language=Language.ES`. Whisper runs on **CPU** on Mac (no MPS); `int8` is
@@ -38,81 +65,78 @@ remote AI ─(call)─ Aircall
   `max_tokens=160` to cut the long tail (voice replies are short).
 - **TTS:** local **native** Piper (`piper-tts` package, `pipecat-ai[piper]` extra,
   no HTTP server). Voice `es_ES-davefx-medium`, auto-downloaded on first use via
-  `voice_id`. The voice `.onnx`/`.onnx.json` files are cached in `console/`.
-- **UI:** FastAPI serves `console/index.html` + a `/ws` WebSocket for control and
-  live events (state, transcript, latency, prompt editing).
+  `voice_id`. The voice `.onnx`/`.onnx.json` files are cached in `python/`.
 
-## Files
+## IPC protocol (Node ↔ Python)
 
-- `parrot_ai_agent.py` — headless (CLI) version, no UI. Useful for debugging.
-- `console/app.py` — FastAPI backend + WebSocket + pipeline lifecycle.
-- `console/index.html` — operator panel (vanilla JS, connects to `ws://localhost:8000/ws`).
+The Node backend spawns `.venv/bin/python python/pipeline.py` as a child process.
 
-> The Pipecat pipeline is **duplicated** across `parrot_ai_agent.py` (`main()`)
-> and `console/app.py` (`run_agent()`), as are the config constants
-> (`WHISPER_MODEL`, `WHISPER_COMPUTE`, `PIPER_VOICE`, `LLM_MAX_TOKENS`, and the
-> `SYSTEM_PROMPT`/`DEFAULT_PROMPT`). If you touch the wiring or a model parameter,
-> **change it in both places**.
+**Python → Node (stdout, newline-delimited JSON):**
+- `{type:"init", prompt, devices:{input,output}}` — on startup; Node caches for `hello`.
+- `{type:"state", value}` — `idle | listening | thinking | speaking`.
+- `{type:"transcript", role, text}` — `role` = `user` | `assistant`.
+- `{type:"latency", ms}` — `UserStoppedSpeaking → BotStartedSpeaking` time.
+- `{type:"running", value}` / `{type:"error", message}`.
+
+**Node → Python (stdin, newline-delimited JSON):**
+- `{type:"start", input_device, output_device}` — starts the pipeline.
+- `{type:"stop"}` — cancels the pipeline task.
+- `{type:"set_prompt", text}` — updates the prompt (applies on the next "start").
+
+## WebSocket protocol (`/ws` — browser-facing, unchanged)
+
+- **Client → server:**
+  - `{type:"start", input_device, output_device}` — starts the pipeline.
+  - `{type:"stop"}` — stops the pipeline.
+  - `{type:"set_prompt", text}` — updates the prompt.
+- **Server → client:**
+  - `{type:"hello", running, devices:{input,output}, config:{prompt,input_device,output_device,llm,stt,tts}}` — on connect.
+  - `{type:"state", value}` — `idle | listening | thinking | speaking`.
+  - `{type:"transcript", role, text, ts?}` — transcript events.
+  - `{type:"latency", ms}` — end-to-end response latency.
+  - `{type:"running", value}` / `{type:"error", message}`.
 
 ## Configuration (environment)
 
-- `DEEPSEEK_API_KEY` — **required**, startup fails if missing.
+- `DEEPSEEK_API_KEY` — **required**, Python pipeline fails if missing.
 - `LLM_BASE_URL` — optional, defaults to `https://api.deepseek.com/v1`.
 - `LLM_MODEL` — optional, defaults to `deepseek-chat`.
+- `PORT` — optional Node server port, defaults to `8000`.
 
 ## How to run
 
 Requirements: macOS (Apple Silicon), `DEEPSEEK_API_KEY` in the environment, BlackHole
-2ch and 16ch installed. **Use Python 3.12** (faster-whisper/onnxruntime have no
-wheels for 3.14). Piper no longer needs a server: the voice auto-downloads on first
-use.
+2ch and 16ch installed, Node.js ≥ 20, pnpm ≥ 9. **Use Python 3.12** (faster-whisper/
+onnxruntime have no wheels for 3.14).
 
 ```bash
-# environment (once)
+# Python environment (once)
 brew install --cask blackhole-2ch blackhole-16ch   # audio driver (prompts for password)
 brew install portaudio                              # needed to compile pyaudio
 /opt/homebrew/bin/python3.12 -m venv .venv
 source .venv/bin/activate
-# CFLAGS/LDFLAGS so pyaudio finds Homebrew's portaudio
 export CFLAGS="-I/opt/homebrew/include" LDFLAGS="-L/opt/homebrew/lib"
-pip install -r requirements.txt
-# (alternative from scratch, pins fewer versions:)
-# pip install "pipecat-ai[silero,whisper,openai,local,piper]" sounddevice faster-whisper fastapi uvicorn
+pip install -r python/requirements.txt
 
-# run — UI
-export DEEPSEEK_API_KEY="..."
-cd console && uvicorn app:app --host 127.0.0.1 --port 8000   # open http://localhost:8000
+# Node environment (once)
+pnpm install
 
-# run — headless (debugging, no UI)
+# Run — UI
 export DEEPSEEK_API_KEY="..."
-python parrot_ai_agent.py
+pnpm turbo dev                              # open http://localhost:8000
+# or: pnpm --filter @parrot/backend dev
+
+# Run — headless (debugging, no UI)
+source .venv/bin/activate
+export DEEPSEEK_API_KEY="..."
+python python/agent.py
 ```
 
 In Aircall settings: speaker = `BlackHole 2ch`, mic = `BlackHole 16ch`.
 
 There are no tests or linter configured in the repo.
 
-## WebSocket protocol (`/ws`)
-
-`console/app.py` keeps a **single** global `agent_task` → only one pipeline at a
-time (`is_running()`). State lives in the `state` dict (prompt + devices). Messages:
-
-- **Client → server:**
-  - `{type:"start", input_device, output_device}` — starts the pipeline (ignored if already running).
-  - `{type:"stop"}` — cancels the `agent_task`.
-  - `{type:"set_prompt", text}` — updates the prompt; **applies on the next "start"**, not live.
-- **Server → client:**
-  - `{type:"hello", running, devices:{input,output}, config:{prompt,input_device,output_device,llm,stt,tts}}` — on connect.
-  - `{type:"state", value}` — `idle | listening | thinking | speaking`.
-  - `{type:"transcript", role, text, ts?}` — `role` = `user` (caller) | `assistant` (agent).
-  - `{type:"latency", ms}` — `UserStoppedSpeaking → BotStartedSpeaking` time.
-  - `{type:"running", value}` / `{type:"error", message}`.
-
-The Pipecat-frames → WS-messages translation is done by `ConsoleObserver`
-(a `BaseObserver` subclass), attached via `task.add_observer(...)`. See the next
-section for why an observer and not something else.
-
-## Pipecat API — resolved for 1.3.0 (pinned in `requirements.txt`)
+## Pipecat API — resolved for 1.3.0 (pinned in `python/requirements.txt`)
 
 The code is adapted to **Pipecat 1.3.0**. The API changed a lot from earlier
 versions; if you upgrade Pipecat, review these points (`pip show pipecat-ai`).
@@ -129,8 +153,8 @@ Current mapping:
 - **STT:** `WhisperSTTService(model="base", language=Language.ES)` —
   `language` is the `pipecat.transcriptions.language.Language` enum, not a string.
 - **Transcript + UI state:** there is no `TranscriptProcessor` anymore. A
-  `BaseObserver` (`ConsoleObserver` in `app.py`) over `on_push_frame` is used,
-  reading `TranscriptionFrame` (user), `LLMTextFrame`/`LLMFullResponse*Frame`
+  `BaseObserver` (`ConsoleObserver` in `python/pipeline.py`) over `on_push_frame` is
+  used, reading `TranscriptionFrame` (user), `LLMTextFrame`/`LLMFullResponse*Frame`
   (agent) and `User/BotStartedSpeakingFrame` (state). One frame crosses several
   edges → `on_push_frame` fires multiple times, so it's **deduplicated by frame id**
   (`_fresh`, capped at 4000 ids). Attached with `task.add_observer(...)`.
@@ -138,8 +162,6 @@ Current mapping:
   is no longer a field (interruptions on by default via the turn system).
   `PipelineTask` is marked *deprecated* (subclass of `PipelineWorker`) but works;
   shut down with `await task.cancel()`.
-
-All the WebSocket/UI machinery and start/stop are stable.
 
 ## Gotchas
 
@@ -151,7 +173,9 @@ All the WebSocket/UI machinery and start/stop are stable.
 - Don't try to capture Aircall's WebRTC from the browser: it's cross-origin. The
   valid path is OS-level virtual audio.
 - The `PipelineTask` deprecation warning is silenced with
-  `warnings.filterwarnings("ignore", category=DeprecationWarning)` in both files.
+  `warnings.filterwarnings("ignore", category=DeprecationWarning)` in `python/pipeline.py`.
+- Python stdout is the **IPC channel** — never print arbitrary text from `python/pipeline.py`;
+  use `sys.stderr` for any debug output.
 
 ## TODO
 
@@ -162,7 +186,10 @@ All the WebSocket/UI machinery and start/stop are stable.
 ## Conventions
 
 - Code comments, docstrings, and UI copy in **English**.
-- The agent's persona prompt (`SYSTEM_PROMPT`/`DEFAULT_PROMPT`) stays **Spanish** — the
+- The agent's persona prompt (`DEFAULT_PROMPT`) stays **Spanish** — the
   agent converses in Spanish (Whisper `language=ES` + `es_ES` Piper voice). Switching it
   to English means also changing the STT language and the TTS voice.
 - Agent replies short and natural (it's voice, not chat).
+- `DEFAULT_PROMPT` lives in `python/shared.py` (imported by both `pipeline.py` and
+  `agent.py`) and is echoed to Node via the `init` IPC event on startup. It is **not**
+  duplicated in TypeScript.
