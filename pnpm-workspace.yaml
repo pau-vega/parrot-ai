@@ -2,3 +2,5 @@ packages:
   - "apps/*"
 allowBuilds:
   esbuild: true
+  naudiodon-neo: true
+  smart-whisper: true
