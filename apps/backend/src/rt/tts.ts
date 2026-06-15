@@ -1,61 +1,80 @@
-import { spawn, type ChildProcess } from "child_process";
-import { resolve } from "path";
+import * as ort from "onnxruntime-node";
+import createPiperPhonemize from "@diffusionstudio/piper-wasm/build/piper_phonemize.js";
+import { resolve, dirname } from "path";
 
 const REPO_ROOT = resolve(__dirname, "../../../../");
-const PYTHON_BIN = resolve(REPO_ROOT, ".venv/bin/python");
-const TTS_SCRIPT = resolve(REPO_ROOT, "python/tts_piper.py");
-const VOICE_ONNX = resolve(REPO_ROOT, "python/es_ES-davefx-medium.onnx");
+const VOICE_ONNX = resolve(REPO_ROOT, "models/es_ES-davefx-medium.onnx");
+const WASM_GLUE = require.resolve("@diffusionstudio/piper-wasm/build/piper_phonemize.js");
+const WASM_DIR = dirname(WASM_GLUE);
+
+// Piper voice config (es_ES-davefx-medium): VITS inference scales + output rate.
+const ESPEAK_VOICE = "es";
+const SCALES = Float32Array.from([0.667, 1.0, 0.8]); // noise_scale, length_scale, noise_w
+const SAMPLE_RATE = 22050;
+
+interface PhonemizeResult {
+  phoneme_ids: number[];
+}
 
 /**
- * Piper TTS via the thin persistent Python synth helper (python/tts_piper.py).
- * Piper has no working standalone binary on macOS arm64, so this one Python
- * process stays — but it's a stateless text->PCM synth, off the realtime control
- * loop. The model loads once; warm synth is ~tens of ms per sentence.
- *
- * Protocol: write {"text"} JSON lines; read [u32 sample_rate][u32 len] + PCM.
+ * Pure-Node Piper TTS: text → phoneme ids (the real piper_phonemize compiled to
+ * WASM, so phonemes match the trained voice) → VITS inference via onnxruntime-node
+ * → 16-bit PCM. No Python, no child process.
  */
 export class PiperTTS {
-  private proc!: ChildProcess;
-  private buf = Buffer.alloc(0);
-  private queue: Array<(r: { sampleRate: number; pcm: Buffer }) => void> = [];
-  sampleRate = 22050;
+  private session!: ort.InferenceSession;
+  private phonemize!: (text: string) => number[];
+  sampleRate = SAMPLE_RATE;
 
   async load(): Promise<void> {
-    this.proc = spawn(PYTHON_BIN, [TTS_SCRIPT], {
-      cwd: REPO_ROOT,
-      stdio: ["pipe", "pipe", "inherit"],
-      env: { ...process.env, PIPER_VOICE_ONNX: VOICE_ONNX },
+    this.session = await ort.InferenceSession.create(VOICE_ONNX);
+
+    // One warm WASM instance; callMain is reused per synth. espeak-ng-data is
+    // preloaded inside the module at /espeak-ng-data.
+    const lines: string[] = [];
+    const mod = await createPiperPhonemize({
+      print: (l) => lines.push(l),
+      printErr: () => {},
+      locateFile: (p) => resolve(WASM_DIR, p),
     });
-    this.proc.stdout!.on("data", (d: Buffer) => {
-      this.buf = Buffer.concat([this.buf, d]);
-      this.pump();
-    });
-    // Give the voice model a moment to load before the first request.
-    await new Promise((r) => setTimeout(r, 1500));
+    this.phonemize = (text: string): number[] => {
+      lines.length = 0;
+      mod.callMain(["-l", ESPEAK_VOICE, "--input", JSON.stringify([{ text }]), "--espeak_data", "/espeak-ng-data"]);
+      const ids: number[] = [];
+      for (const line of lines) {
+        try {
+          ids.push(...(JSON.parse(line) as PhonemizeResult).phoneme_ids);
+        } catch {
+          // non-JSON log line — ignore
+        }
+      }
+      return ids;
+    };
+
+    // Warm the VITS graph so the first real turn doesn't pay graph-init cost.
+    await this.synth("hola");
   }
 
-  private pump(): void {
-    while (this.buf.length >= 8) {
-      const sampleRate = this.buf.readUInt32LE(0);
-      const len = this.buf.readUInt32LE(4);
-      if (this.buf.length < 8 + len) return;
-      const pcm = this.buf.subarray(8, 8 + len);
-      this.buf = this.buf.subarray(8 + len);
-      const resolveFn = this.queue.shift();
-      if (resolveFn) resolveFn({ sampleRate, pcm: Buffer.from(pcm) });
+  /** Synthesize one sentence to 16-bit PCM at this.sampleRate. */
+  async synth(text: string): Promise<{ sampleRate: number; pcm: Buffer }> {
+    const ids = this.phonemize(text);
+    if (ids.length === 0) return { sampleRate: this.sampleRate, pcm: Buffer.alloc(0) };
+
+    const input = new ort.Tensor("int64", BigInt64Array.from(ids, BigInt), [1, ids.length]);
+    const inputLengths = new ort.Tensor("int64", BigInt64Array.from([BigInt(ids.length)]), [1]);
+    const scales = new ort.Tensor("float32", SCALES, [3]);
+    const out = await this.session.run({ input, input_lengths: inputLengths, scales });
+
+    const audio = out.output?.data;
+    if (!(audio instanceof Float32Array)) return { sampleRate: this.sampleRate, pcm: Buffer.alloc(0) };
+    const pcm = Buffer.alloc(audio.length * 2);
+    for (let i = 0; i < audio.length; i++) {
+      const s = Math.max(-1, Math.min(1, audio[i] ?? 0));
+      pcm.writeInt16LE((s < 0 ? s * 32768 : s * 32767) | 0, i * 2);
     }
+    return { sampleRate: this.sampleRate, pcm };
   }
 
-  /** Synthesize one sentence to 16-bit PCM (sampleRate set on the result). */
-  synth(text: string): Promise<{ sampleRate: number; pcm: Buffer }> {
-    return new Promise((res) => {
-      this.queue.push(res);
-      this.proc.stdin!.write(JSON.stringify({ text }) + "\n");
-    });
-  }
-
-  kill(): void {
-    this.proc?.stdin?.end();
-    this.proc?.kill();
-  }
+  // Pure in-process now — nothing to tear down, but keep the interface stable.
+  kill(): void {}
 }

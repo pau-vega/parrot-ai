@@ -14,6 +14,9 @@ importers:
 
   apps/backend:
     dependencies:
+      '@diffusionstudio/piper-wasm':
+        specifier: ^1.0.0
+        version: 1.0.0
       express:
         specifier: ^5.1.0
         version: 5.2.1
@@ -59,6 +62,9 @@ importers:
         version: 2.9.18
 
 packages:
+
+  '@diffusionstudio/piper-wasm@1.0.0':
+    resolution: {integrity: sha512-4Hgh7wJ1PuGEVgVi1CpducESnyXwjFRJN4zXjYRpxgquM+Zh6Eqq8ZaiGpCKm4yXvT1Y2SPQXbv0dEckFD9NaQ==}
 
   '@esbuild/aix-ppc64@0.28.1':
     resolution: {integrity: sha512-Svl7tq8k/08+p6CXPpRjQ1fKX+1odH/BQbb48fV6fj3CWHhsoIOoY87w1oHXm0qEpkIK3ZfVgp0hed3XBXzXMQ==}
@@ -664,6 +670,8 @@ packages:
         optional: true
 
 snapshots:
+
+  '@diffusionstudio/piper-wasm@1.0.0': {}
 
   '@esbuild/aix-ppc64@0.28.1':
     optional: true
