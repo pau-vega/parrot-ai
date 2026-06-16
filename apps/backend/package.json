@@ -1,0 +1,28 @@
+{
+  "name": "@parrot/backend",
+  "private": true,
+  "version": "0.1.0",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "check-types": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@diffusionstudio/piper-wasm": "^1.0.0",
+    "express": "^5.1.0",
+    "naudiodon-neo": "^2.4.1",
+    "onnxruntime-node": "^1.26.0",
+    "openai": "^6.42.0",
+    "smart-whisper": "^0.8.1",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.0",
+    "@types/node": "^20.0.0",
+    "@types/ws": "^8.5.0",
+    "tsx": "^4.0.0",
+    "turbo": "^2.9.18",
+    "typescript": "^5.5.0"
+  }
+}

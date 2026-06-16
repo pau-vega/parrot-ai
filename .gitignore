@@ -1,0 +1,35 @@
+# Environment variables
+.env
+.env.*
+!.env.example
+
+# Model weights — fetched via tools/fetch-models.sh, never committed
+*.onnx
+*.onnx.json
+*.bin
+
+# Node
+node_modules/
+.turbo/
+apps/backend/dist/
+apps/backend/*.tsbuildinfo
+
+# Local Claude config / vendored skills (per-developer, not shared)
+.agents/
+.claude/skills/
+.claude/settings.local.json
+skills-lock.json
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Logs
+*.log
