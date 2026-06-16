@@ -7,7 +7,7 @@ import type { PipelineEvent } from "./types";
  * `PipelineEvent` payload.
  */
 export interface PipelineBackend extends EventEmitter {
-  /** Boot the backend (spawn the child / init the in-process pipeline). */
+  /** Boot the backend (init the in-process pipeline). */
   spawn(): void;
   /** Start a call bound to the two named audio devices. */
   sendStart(inputDevice: string, outputDevice: string): void;

@@ -110,12 +110,22 @@ Internally `NodePipelineBackend` emits the same set as `PipelineEvent` (plus an
 
 ## Configuration (environment)
 
+The backend auto-loads a repo-root `.env` at startup (`index.ts`, Node's native
+`process.loadEnvFile()` — no `dotenv` dependency). It's skipped silently if the
+file is absent, so an exported/ambient env works too. Copy `.env.example` →
+`.env` to get started.
+
 - `DEEPSEEK_API_KEY` — **required** (the LLM client throws without it).
 - `LLM_BASE_URL` — optional, defaults to `https://api.deepseek.com/v1`.
 - `LLM_MODEL` — optional, defaults to `deepseek-chat`.
+- `LLM_MAX_TOKENS` — optional, defaults to `160` (short voice replies).
+- `WHISPER_MODEL` — optional STT model, defaults to `base`.
+- `PIPER_VOICE` — optional TTS voice, defaults to `es_ES-davefx-medium`.
 - `PORT` — optional Node server port, defaults to `8000`.
 
 `config.ts` is the single source for the prompt + model/voice/device defaults.
+Only `DEEPSEEK_API_KEY`, `LLM_BASE_URL`, `LLM_MODEL`, and `PORT` are declared in
+`turbo.json`'s `globalEnv`.
 
 ## How to run
 
@@ -136,9 +146,9 @@ pnpm install
 # Models + Piper voice (once; weights are git-ignored)
 tools/fetch-models.sh
 
-# Run — UI
-export DEEPSEEK_API_KEY="..."
-pnpm turbo dev                              # open http://localhost:8000
+# Run — UI (key via repo-root .env, or an exported env var)
+cp .env.example .env                        # then fill in DEEPSEEK_API_KEY
+pnpm dev                                    # = turbo dev; open http://localhost:8000
 # or: pnpm --filter @parrot/backend dev
 ```
 
@@ -189,3 +199,6 @@ across the workspace (no separate linter).
 - Agent replies short and natural (it's voice, not chat).
 - The persona prompt lives in `prompts/default-es.txt`, loaded once by
   `config.ts` as `DEFAULT_PROMPT`. It is **not** duplicated elsewhere.
+- TypeScript follows the `typescript-rules@AI-Devkit` plugin conventions (enabled
+  in `.claude/settings.json`): e.g. `interface extends` over `&`, no `enum`s,
+  `import type`, no default exports, explicit return types, avoid `any`.
