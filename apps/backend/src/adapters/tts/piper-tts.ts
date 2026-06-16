@@ -25,9 +25,9 @@ interface PhonemizeResult {
  * → 16-bit PCM. No Python, no child process.
  */
 export class PiperTTS implements TtsPort {
-  private session!: ort.InferenceSession
-  private phonemize!: (text: string) => number[]
-  sampleRate = SAMPLE_RATE
+  private session?: ort.InferenceSession
+  private phonemize?: (text: string) => number[]
+  sampleRate: number = SAMPLE_RATE
 
   async load(): Promise<void> {
     this.session = await ort.InferenceSession.create(VOICE_ONNX)
@@ -65,6 +65,7 @@ export class PiperTTS implements TtsPort {
 
   /** Synthesize one sentence to 16-bit PCM at this.sampleRate. */
   async synth(text: string): Promise<TtsResult> {
+    if (!this.phonemize || !this.session) throw new Error("PiperTTS: call load() before synth()")
     const ids = this.phonemize(text)
     if (ids.length === 0) return { sampleRate: this.sampleRate, pcm: Buffer.alloc(0) }
 

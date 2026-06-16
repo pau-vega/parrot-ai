@@ -8,8 +8,12 @@ export interface TurnEdge {
 }
 
 export class TurnDetector {
-  speaking = false
+  private _speaking = false
   private silenceFrames = 0
+
+  get isSpeaking(): boolean {
+    return this._speaking;
+  }
 
   constructor(
     private startThreshold = 0.5,
@@ -21,16 +25,16 @@ export class TurnDetector {
   observe(prob: number): TurnEdge {
     let started = false
     let ended = false
-    if (!this.speaking) {
+    if (!this._speaking) {
       if (prob >= this.startThreshold) {
-        this.speaking = true
+        this._speaking = true
         this.silenceFrames = 0
         started = true
       }
     } else {
       if (prob < this.endThreshold) {
         if (++this.silenceFrames >= this.hangoverFrames) {
-          this.speaking = false
+          this._speaking = false
           this.silenceFrames = 0
           ended = true
         }
@@ -42,7 +46,7 @@ export class TurnDetector {
   }
 
   reset(): void {
-    this.speaking = false
+    this._speaking = false
     this.silenceFrames = 0
   }
 }

@@ -19,7 +19,7 @@ const SR = 16000
  * (TurnDetector) — this adapter only runs the model.
  */
 export class SileroVAD implements VadPort {
-  private session!: ort.InferenceSession
+  private session?: ort.InferenceSession
   private state: ort.Tensor = new ort.Tensor("float32", new Float32Array(2 * 1 * 128), [2, 1, 128])
   private context = new Float32Array(CONTEXT)
   private readonly sr = new ort.Tensor("int64", BigInt64Array.from([BigInt(SR)]), [])
@@ -34,6 +34,7 @@ export class SileroVAD implements VadPort {
 
   /** Run one 512-sample frame; returns the speech probability [0,1]. */
   async process(frame: Float32Array): Promise<number> {
+    if (!this.session) throw new Error("SileroVAD: call load() before process()")
     const input = new Float32Array(CONTEXT + frame.length)
     input.set(this.context, 0)
     input.set(frame, CONTEXT)
@@ -42,7 +43,9 @@ export class SileroVAD implements VadPort {
       state: this.state,
       sr: this.sr,
     })
-    this.state = out.stateN as ort.Tensor
+    const stateN = out.stateN
+    if (!stateN) throw new Error("SileroVAD: model missing stateN output")
+    this.state = stateN
     this.context = input.slice(input.length - CONTEXT)
     const first = out.output?.data?.[0]
     return typeof first === "number" ? first : 0

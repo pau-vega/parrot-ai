@@ -18,7 +18,7 @@ export class DeepSeekLLM implements LlmPort {
     this.client = new OpenAI({ apiKey, baseURL: LLM_BASE_URL })
   }
 
-  async *stream(messages: ChatMessage[], signal: AbortSignal): AsyncGenerator<string> {
+  async *stream(messages: readonly ChatMessage[], signal: AbortSignal): AsyncGenerator<string> {
     const stream = await this.client.chat.completions.create(
       {
         model: LLM_MODEL,

@@ -7,7 +7,7 @@ test("starts once when prob crosses the start threshold", () => {
   const d = new TurnDetector()
   assert.deepEqual(d.observe(0.6), { started: true, ended: false })
   assert.deepEqual(d.observe(0.9), { started: false, ended: false })
-  assert.equal(d.speaking, true)
+  assert.equal(d.isSpeaking, true)
 })
 
 test("ends only after hangoverFrames of sub-end-threshold frames", () => {
@@ -16,7 +16,7 @@ test("ends only after hangoverFrames of sub-end-threshold frames", () => {
   assert.deepEqual(d.observe(0.1), { started: false, ended: false })
   assert.deepEqual(d.observe(0.1), { started: false, ended: false })
   assert.deepEqual(d.observe(0.1), { started: false, ended: true })
-  assert.equal(d.speaking, false)
+  assert.equal(d.isSpeaking, false)
 })
 
 test("a frame at/above the end threshold resets the silence count", () => {

@@ -1,7 +1,6 @@
 import { EventEmitter } from "events"
 
-import type { PipelineEvent } from "../types.js"
-import type { AgentState } from "../types.js"
+import type { AgentState, PipelineEvent } from "../types.js"
 import type {
   AudioInputPort,
   AudioOutputPort,
@@ -41,7 +40,7 @@ export class TurnEngine extends EventEmitter {
   private input?: AudioInputPort
   private output?: AudioOutputPort
 
-  private mode: "listening" | "thinking" | "speaking" = "listening"
+  private mode: AgentState = "listening"
   private userAudio: number[] = []
   private preRoll: Float32Array[] = []
   private abort?: AbortController
@@ -113,7 +112,7 @@ export class TurnEngine extends EventEmitter {
       this.setState("listening")
     }
 
-    if (this.detector.speaking && this.mode === "listening") {
+    if (this.detector.isSpeaking && this.mode === "listening") {
       this.userAudio.push(...frame)
     }
 

@@ -13,7 +13,8 @@ try {
   // no .env file — rely on the ambient environment instead
 }
 
-const PORT = parseInt(process.env.PORT ?? "8000", 10)
+const parsedPort = parseInt(process.env.PORT ?? "8000", 10)
+const PORT = Number.isNaN(parsedPort) ? 8000 : parsedPort
 const FRONTEND_DIR = resolve(import.meta.dirname, "../../frontend")
 
 const pipeline = buildPipeline()
