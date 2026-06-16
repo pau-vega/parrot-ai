@@ -43,35 +43,6 @@ export type PipelineEvent =
   | { type: "init"; prompt: string; devices: DeviceList }
   | PipelineServerEvent;
 
-// Commands from Node → pipeline (mirrors BrowserMessage).
-export type PipelineCommand =
-  | { type: "start"; input_device: string; output_device: string }
-  | { type: "stop" }
-  | { type: "set_prompt"; text: string };
-
-// Narrowing guard for JSON parsed off the pipeline IPC channel.
-// Validates required fields for each variant, not just the discriminant.
-export function isPipelineEvent(value: unknown): value is PipelineEvent {
-  if (typeof value !== "object" || value === null || !("type" in value)) return false;
-  const v = value as Record<string, unknown>;
-  switch (v["type"]) {
-    case "init":
-      return typeof v["prompt"] === "string" && typeof v["devices"] === "object" && v["devices"] !== null;
-    case "state":
-      return typeof v["value"] === "string";
-    case "transcript":
-      return (v["role"] === "user" || v["role"] === "assistant") && typeof v["text"] === "string";
-    case "latency":
-      return typeof v["ms"] === "number";
-    case "running":
-      return typeof v["value"] === "boolean";
-    case "error":
-      return typeof v["message"] === "string";
-    default:
-      return false;
-  }
-}
-
 // Narrowing guard for JSON parsed off a browser WebSocket message.
 // Validates required fields for each variant, not just the discriminant.
 export function isBrowserMessage(value: unknown): value is BrowserMessage {

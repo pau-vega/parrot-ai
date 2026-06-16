@@ -1,22 +1,21 @@
 import { EventEmitter } from "events";
-import type { PipelineBackend } from "./backend";
 import type { PipelineEvent } from "./types";
 import { DEFAULT_PROMPT } from "./config";
 import { deviceNames } from "./rt/audio";
 import { Orchestrator } from "./rt/orchestrator";
 
 /**
- * In-process `PipelineBackend` — the full Node realtime pipeline. Emits a
- * `PipelineEvent` stream that index.ts forwards to the frontend unchanged.
+ * The full Node realtime pipeline. Emits a `PipelineEvent` stream that index.ts
+ * forwards to the frontend unchanged.
  */
-export class NodePipelineBackend extends EventEmitter implements PipelineBackend {
+export class NodePipelineBackend extends EventEmitter {
   private orch: Orchestrator | null = null;
   private prompt = DEFAULT_PROMPT;
   private alive = false;
 
   spawn(): void {
     this.alive = true;
-    // Mirror the Python `init` event: enumerate devices + advertise the prompt.
+    // `init` event: enumerate devices + advertise the prompt.
     try {
       this.emit("event", {
         type: "init",
@@ -52,7 +51,7 @@ export class NodePipelineBackend extends EventEmitter implements PipelineBackend
   }
 
   sendSetPrompt(text: string): void {
-    this.prompt = text; // applies on the next start, matching Python semantics
+    this.prompt = text; // applies on the next start
   }
 
   kill(): void {
