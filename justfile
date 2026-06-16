@@ -7,6 +7,11 @@ default:
 
 # --- Development ---
 
+# Create the Python agent venv and install its pinned deps (run once)
+[group('dev')]
+setup-agent:
+    cd apps/agent && uv venv --python 3.12 && uv pip sync requirements.txt
+
 # Run all packages in dev mode
 [group('dev')]
 dev:

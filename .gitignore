@@ -39,3 +39,6 @@ skills-lock.json
 
 # Per-session transcripts written by the file transcript repository
 transcripts/
+
+# STT debug WAV dumps (DEBUG_STT_WAV=1)
+debug-audio/
