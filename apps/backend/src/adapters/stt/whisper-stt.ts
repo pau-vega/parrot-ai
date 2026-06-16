@@ -11,7 +11,7 @@ const MODEL = resolve(REPO_ROOT, "models/ggml-base.bin");
  * Metal kernel-compile cost.
  */
 export class WhisperSTT implements SttPort {
-  private whisper!: Whisper;
+  private whisper?: Whisper;
 
   async load(): Promise<void> {
     this.whisper = new Whisper(MODEL, { gpu: true });
