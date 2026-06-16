@@ -1,7 +1,7 @@
 import { readFileSync } from "fs";
 import { resolve } from "path";
 
-const REPO_ROOT = resolve(__dirname, "../../../");
+const REPO_ROOT = resolve(__dirname, "../../../../");
 
 // Single source of truth for the pipeline config: persona prompt + model/voice/LLM/device defaults.
 

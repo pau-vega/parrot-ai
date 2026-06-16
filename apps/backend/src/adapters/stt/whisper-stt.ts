@@ -1,7 +1,8 @@
 import { Whisper } from "smart-whisper";
 import { resolve } from "path";
+import type { SttPort } from "../../domain/ports";
 
-const REPO_ROOT = resolve(__dirname, "../../../../");
+const REPO_ROOT = resolve(__dirname, "../../../../../");
 const MODEL = resolve(REPO_ROOT, "models/ggml-base.bin");
 
 /**
@@ -9,7 +10,7 @@ const MODEL = resolve(REPO_ROOT, "models/ggml-base.bin");
  * loads once and is warmed on init so the first real turn doesn't pay the ~3s
  * Metal kernel-compile cost.
  */
-export class WhisperSTT {
+export class WhisperSTT implements SttPort {
   private whisper!: Whisper;
 
   async load(): Promise<void> {
