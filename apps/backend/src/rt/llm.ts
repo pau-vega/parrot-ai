@@ -2,9 +2,8 @@ import OpenAI from "openai";
 import { LLM_BASE_URL, LLM_MODEL, LLM_MAX_TOKENS } from "../config";
 
 /**
- * DeepSeek (OpenAI-compatible) streaming chat. Mirrors the Python config:
- * deepseek-chat, max_tokens=160. Streams tokens and yields complete sentences as
- * soon as they form, so TTS can start speaking before the full reply lands.
+ * DeepSeek (OpenAI-compatible) streaming chat. Streams tokens and yields complete
+ * sentences as soon as they form, so TTS can start speaking before the full reply lands.
  */
 export class LLMClient {
   private client: OpenAI;

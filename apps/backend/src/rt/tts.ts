@@ -77,7 +77,4 @@ export class PiperTTS {
     }
     return { sampleRate: this.sampleRate, pcm };
   }
-
-  // Pure in-process now — nothing to tear down, but keep the interface stable.
-  kill(): void {}
 }

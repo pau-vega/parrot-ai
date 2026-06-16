@@ -3,10 +3,7 @@ import * as portAudio from "naudiodon-neo";
 
 export const STT_SAMPLE_RATE = 16000;
 
-/**
- * Resolve a device id by case-insensitive substring (same pairing rule as the
- * Python device_index: numbered BlackHole duplicates match the base name).
- */
+/** Resolve a device id by case-insensitive substring (numbered BlackHole duplicates match the base name). */
 export function resolveDevice(name: string, kind: "input" | "output"): number {
   const key = kind === "input" ? "maxInputChannels" : "maxOutputChannels";
   const dev = portAudio.getDevices().find((d) => d.name.toLowerCase().includes(name.toLowerCase()) && d[key] > 0);
@@ -56,7 +53,7 @@ export class AudioInput extends EventEmitter {
     for (let i = 0; i + 1 < buf.length; i += 2) this.acc.push(buf.readInt16LE(i) / 32768);
     while (this.acc.length >= this.frameSize) {
       const chunk = this.acc.splice(0, this.frameSize);
-      this.emit("frame", Float32Array.from(chunk)); // 512 samples @ 16kHz
+      this.emit("frame", Float32Array.from(chunk));
     }
   }
 

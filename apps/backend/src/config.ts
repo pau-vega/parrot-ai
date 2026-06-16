@@ -3,15 +3,9 @@ import { resolve } from "path";
 
 const REPO_ROOT = resolve(__dirname, "../../../");
 
-/**
- * Single source of truth for the pipeline config: the persona prompt plus the
- * model/voice/LLM/device defaults the rt/ modules and the server read.
- *
- * The persona prompt lives in `prompts/default-es.txt` so it's editable in one
- * place and not duplicated in code.
- */
+// Single source of truth for the pipeline config: persona prompt + model/voice/LLM/device defaults.
 
-// Persona prompt: Spanish on purpose (Whisper language=es + es_ES Piper voice).
+// Persona prompt lives in prompts/default-es.txt; Spanish on purpose (Whisper language=es + es_ES Piper voice).
 export const DEFAULT_PROMPT = readFileSync(
   resolve(REPO_ROOT, "prompts/default-es.txt"),
   "utf8",

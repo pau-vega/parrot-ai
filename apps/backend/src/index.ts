@@ -26,8 +26,6 @@ const wss = new WebSocketServer({ server, path: "/ws" });
 
 app.use(express.static(FRONTEND_DIR));
 
-// --- pipeline process -------------------------------------------------------
-
 const pipeline = new NodePipelineBackend();
 
 const cachedDevices: { input: string[]; output: string[] } = { input: [], output: [] };
@@ -52,8 +50,6 @@ pipeline.on("event", (event: PipelineEvent) => {
   // so this assignment is guaranteed sound by the type definitions in types.ts.
   broadcast(event);
 });
-
-// --- WebSocket --------------------------------------------------------------
 
 // Heartbeat liveness, tracked off-socket so no cast/monkey-patch is needed.
 const aliveSockets = new WeakMap<WebSocket, boolean>();
@@ -129,8 +125,6 @@ const heartbeat = setInterval(() => {
 }, HEARTBEAT_MS);
 
 wss.on("close", () => clearInterval(heartbeat));
-
-// --- boot + graceful shutdown -----------------------------------------------
 
 pipeline.spawn();
 

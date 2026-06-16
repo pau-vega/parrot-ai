@@ -5,9 +5,9 @@ const REPO_ROOT = resolve(__dirname, "../../../../");
 const MODEL = resolve(REPO_ROOT, "models/ggml-base.bin");
 
 /**
- * Whisper STT via whisper.cpp (Metal/GPU on Mac). Mirrors the Python config:
- * base model, Spanish. The model loads once and is warmed on init so the first
- * real turn doesn't pay the ~3s Metal kernel-compile cost.
+ * Whisper STT via whisper.cpp (Metal/GPU on Mac), base model, Spanish. The model
+ * loads once and is warmed on init so the first real turn doesn't pay the ~3s
+ * Metal kernel-compile cost.
  */
 export class WhisperSTT {
   private whisper!: Whisper;

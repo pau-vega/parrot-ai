@@ -61,7 +61,6 @@ export class Orchestrator extends EventEmitter {
     this.output = new AudioOutput(this.outputDevice, this.tts.sampleRate);
     this.input = new AudioInput(this.inputDevice);
     this.input.on("frame", (frame: Float32Array) => {
-      // Drop frames when the queue is full to bound memory under load.
       if (this.frameQueueDepth >= MAX_FRAME_QUEUE) return;
       this.frameQueueDepth++;
       this.frameChain = this.frameChain
@@ -172,7 +171,6 @@ export class Orchestrator extends EventEmitter {
     this.input?.stop();
     this.output?.close();
     await this.stt.free();
-    this.tts.kill();
     this.emitEvent({ type: "running", value: false });
     this.setState("idle");
   }
