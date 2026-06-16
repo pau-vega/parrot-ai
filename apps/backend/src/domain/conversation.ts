@@ -21,7 +21,7 @@ export class Conversation {
     this.history.push({ role: "assistant", content: text });
   }
 
-  messages(): ChatMessage[] {
-    return this.history;
+  messages(): readonly ChatMessage[] {
+    return [...this.history];
   }
 }

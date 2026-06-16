@@ -45,9 +45,9 @@ export function startWsServer(pipeline: PipelineBackend, opts: WsServerOptions):
     if (event.type === "running") {
       isRunning = event.value;
     }
-    // PipelineEvent (excluding "init") is defined as a subset of ServerMessage,
-    // so this is sound by the type definitions in types.ts.
-    broadcast(event);
+    // PipelineEvent (excluding "init") is a structural subtype of ServerMessage;
+    // the cast makes the narrowing explicit to the compiler.
+    broadcast(event as ServerMessage);
   });
 
   // Heartbeat liveness, tracked off-socket so no cast/monkey-patch is needed.

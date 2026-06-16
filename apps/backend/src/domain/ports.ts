@@ -38,7 +38,7 @@ export interface SttPort {
 export interface LlmPort {
   // Stateless: given the full message list, stream raw token deltas. Conversation
   // history (Conversation) and sentence chunking (SentenceChunker) live in the domain.
-  stream(messages: ChatMessage[], signal: AbortSignal): AsyncGenerator<string>;
+  stream(messages: readonly ChatMessage[], signal: AbortSignal): AsyncGenerator<string>;
 }
 
 export interface TtsResult {
