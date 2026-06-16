@@ -7,7 +7,7 @@ import { DEFAULT_INPUT_DEVICE, DEFAULT_OUTPUT_DEVICE, LLM_MODEL } from "./config
 import type { ServerMessage, PipelineEvent } from "./types";
 import { isBrowserMessage } from "./types";
 
-// Load .env from the repo root so the spawned Python pipeline inherits keys
+// Load .env from the repo root so the in-process pipeline picks up keys
 // (e.g. DEEPSEEK_API_KEY) via process.env. Optional: skipped if no file exists.
 const ENV_FILE = resolve(__dirname, "../../../.env");
 try {

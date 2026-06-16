@@ -12,8 +12,7 @@ const MAX_FRAME_QUEUE = 8; // drop frames beyond this depth to bound memory unde
 
 /**
  * In-process realtime turn engine: VAD → STT → LLM → TTS → playback, with
- * barge-in. Replaces the Pipecat pipeline. Emits the same PipelineEvent stream
- * the Python backend produced, so the frontend is unchanged.
+ * barge-in. Emits a PipelineEvent stream consumed by the frontend.
  *
  * Audio never leaves this process except the stateless TTS synth call, so the
  * VAD that triggers barge-in and the output it stops live together — no

@@ -6,9 +6,8 @@ import { deviceNames } from "./rt/audio";
 import { Orchestrator } from "./rt/orchestrator";
 
 /**
- * In-process `PipelineBackend` — the full Node realtime pipeline (no Python
- * child). Emits the exact same PipelineEvent stream as PythonPipelineBackend,
- * so index.ts and the frontend treat the two identically.
+ * In-process `PipelineBackend` — the full Node realtime pipeline. Emits a
+ * `PipelineEvent` stream that index.ts forwards to the frontend unchanged.
  */
 export class NodePipelineBackend extends EventEmitter implements PipelineBackend {
   private orch: Orchestrator | null = null;
