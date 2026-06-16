@@ -1,11 +1,21 @@
 import { EventEmitter } from "events";
 import type { PipelineEvent } from "../types";
-import { AudioInput, AudioOutput, STT_SAMPLE_RATE } from "./audio";
-import { SileroVAD } from "./vad";
-import { WhisperSTT } from "./stt";
-import { LLMClient } from "./llm";
-import { PiperTTS } from "./tts";
+import type { AgentState } from "../types";
+import type { AgentConfig } from "./types";
+import type {
+  AudioInputPort,
+  AudioOutputPort,
+  LlmPort,
+  PipelineDependencies,
+  SttPort,
+  TtsPort,
+  VadPort,
+} from "./ports";
+import { TurnDetector } from "./turn-detector";
+import { SentenceChunker } from "./sentence-chunker";
+import { Conversation } from "./conversation";
 
+const STT_SAMPLE_RATE = 16000; // Whisper/VAD native rate; audio frames arrive at this rate
 const PREROLL_FRAMES = 10; // ~0.32s kept before speech start (VAD reacts slightly late)
 const MIN_UTTERANCE_SAMPLES = STT_SAMPLE_RATE * 0.3; // ignore <0.3s blips
 const MAX_FRAME_QUEUE = 8; // drop frames beyond this depth to bound memory under load
@@ -14,17 +24,20 @@ const MAX_FRAME_QUEUE = 8; // drop frames beyond this depth to bound memory unde
  * In-process realtime turn engine: VAD → STT → LLM → TTS → playback, with
  * barge-in. Emits a PipelineEvent stream consumed by the frontend.
  *
- * Audio never leaves this process except the stateless TTS synth call, so the
- * VAD that triggers barge-in and the output it stops live together — no
- * cross-process hop on the interrupt path.
+ * It depends only on ports (PipelineDependencies); concrete adapters are wired
+ * in the composition root. Audio never leaves this process except the stateless
+ * TTS synth call, so the VAD that triggers barge-in and the output it stops live
+ * together — no cross-process hop on the interrupt path.
  */
-export class Orchestrator extends EventEmitter {
-  private vad = new SileroVAD();
-  private stt = new WhisperSTT();
-  private tts = new PiperTTS();
-  private llm: LLMClient;
-  private input?: AudioInput;
-  private output?: AudioOutput;
+export class TurnEngine extends EventEmitter {
+  private vad: VadPort;
+  private stt: SttPort;
+  private tts: TtsPort;
+  private llm: LlmPort;
+  private detector = new TurnDetector();
+  private conversation: Conversation;
+  private input?: AudioInputPort;
+  private output?: AudioOutputPort;
 
   private mode: "listening" | "thinking" | "speaking" = "listening";
   private userAudio: number[] = [];
@@ -37,18 +50,21 @@ export class Orchestrator extends EventEmitter {
   private turnId = 0;
 
   constructor(
-    private prompt: string,
-    private inputDevice: string,
-    private outputDevice: string,
+    private deps: PipelineDependencies,
+    private config: AgentConfig,
   ) {
     super();
-    this.llm = new LLMClient(prompt);
+    this.vad = deps.createVad();
+    this.stt = deps.createStt();
+    this.tts = deps.createTts();
+    this.llm = deps.createLlm();
+    this.conversation = new Conversation(config.prompt);
   }
 
   private emitEvent(e: PipelineEvent): void {
     this.emit("event", e);
   }
-  private setState(value: "idle" | "listening" | "thinking" | "speaking"): void {
+  private setState(value: AgentState): void {
     this.emitEvent({ type: "state", value });
   }
 
@@ -56,11 +72,12 @@ export class Orchestrator extends EventEmitter {
     await this.vad.load();
     await this.stt.load();
     await this.tts.load();
-    this.llm.reset();
+    this.conversation.reset();
+    this.detector.reset();
 
-    this.output = new AudioOutput(this.outputDevice, this.tts.sampleRate);
-    this.input = new AudioInput(this.inputDevice);
-    this.input.on("frame", (frame: Float32Array) => {
+    this.output = this.deps.createAudioOutput(this.config.outputDevice, this.tts.sampleRate);
+    this.input = this.deps.createAudioInput(this.config.inputDevice);
+    this.input.onFrame((frame: Float32Array) => {
       if (this.frameQueueDepth >= MAX_FRAME_QUEUE) return;
       this.frameQueueDepth++;
       this.frameChain = this.frameChain
@@ -79,7 +96,8 @@ export class Orchestrator extends EventEmitter {
   }
 
   private async onFrame(frame: Float32Array): Promise<void> {
-    const { started, ended } = await this.vad.process(frame);
+    const prob = await this.vad.process(frame);
+    const { started, ended } = this.detector.observe(prob);
 
     // pre-roll ring buffer (only matters before a turn begins)
     this.preRoll.push(frame);
@@ -93,7 +111,7 @@ export class Orchestrator extends EventEmitter {
       this.setState("listening");
     }
 
-    if (this.vad.speaking && this.mode === "listening") {
+    if (this.detector.speaking && this.mode === "listening") {
       this.userAudio.push(...frame);
     }
 
@@ -119,7 +137,8 @@ export class Orchestrator extends EventEmitter {
     // Set abort early so bargeIn() can interrupt STT if needed.
     this.abort = new AbortController();
     const signal = this.abort.signal;
-    let full = "";
+    let rawFull = ""; // raw token stream → conversation history (faithful to the model)
+    let spoken = ""; // sentence-joined → transcript event shown to the user
 
     try {
       const text = await this.stt.transcribe(audio);
@@ -131,15 +150,18 @@ export class Orchestrator extends EventEmitter {
         return;
       }
       this.emitEvent({ type: "transcript", role: "user", text });
+      this.conversation.addUser(text);
 
       this.mode = "speaking";
       let firstAudio = true;
+      const chunker = new SentenceChunker();
 
-      for await (const sentence of this.llm.respond(text, signal)) {
-        if (signal.aborted) break;
-        full += (full ? " " : "") + sentence;
+      // Synthesize + play one sentence; returns false if interrupted.
+      const speak = async (sentence: string): Promise<boolean> => {
+        if (signal.aborted) return false;
+        spoken += (spoken ? " " : "") + sentence;
         const { pcm } = await this.tts.synth(sentence);
-        if (signal.aborted) break;
+        if (signal.aborted) return false;
         if (firstAudio) {
           firstAudio = false;
           this.setState("speaking");
@@ -148,6 +170,27 @@ export class Orchestrator extends EventEmitter {
         // Capture output ref before await so a concurrent close() doesn't race.
         const output = this.output;
         if (output) await output.play(pcm);
+        return true;
+      };
+
+      let interrupted = false;
+      for await (const token of this.llm.stream(this.conversation.messages(), signal)) {
+        if (signal.aborted) {
+          interrupted = true;
+          break;
+        }
+        rawFull += token;
+        for (const sentence of chunker.push(token)) {
+          if (!(await speak(sentence))) {
+            interrupted = true;
+            break;
+          }
+        }
+        if (interrupted) break;
+      }
+      if (!interrupted && !signal.aborted) {
+        const tail = chunker.flush();
+        if (tail) await speak(tail);
       }
     } catch (err: unknown) {
       if (!signal.aborted) {
@@ -156,8 +199,13 @@ export class Orchestrator extends EventEmitter {
       }
     }
 
-    if (full.trim() && !signal.aborted) {
-      this.emitEvent({ type: "transcript", role: "assistant", text: full.trim() });
+    if (!signal.aborted) {
+      if (spoken.trim()) this.emitEvent({ type: "transcript", role: "assistant", text: spoken.trim() });
+      if (rawFull.trim()) {
+        this.conversation.addAssistant(rawFull.trim());
+      } else {
+        console.error("TurnEngine: empty response from stream; conversation history not updated");
+      }
     }
     // Only reset mode if this turn is still the current one and it owns "speaking".
     if (this.mode === "speaking" && turnId === this.turnId) {

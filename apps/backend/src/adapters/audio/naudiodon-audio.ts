@@ -1,5 +1,6 @@
 import { EventEmitter } from "events";
 import * as portAudio from "naudiodon-neo";
+import type { AudioInputPort, AudioOutputPort } from "../../domain/ports";
 
 export const STT_SAMPLE_RATE = 16000;
 
@@ -30,7 +31,7 @@ export function deviceNames(kind: "input" | "output"): string[] {
  * float32 frames (the size Silero VAD wants). PortAudio hands us arbitrary-size
  * int16 buffers, so we reframe.
  */
-export class AudioInput extends EventEmitter {
+export class AudioInput extends EventEmitter implements AudioInputPort {
   private io: portAudio.AudioIO;
   private acc: number[] = [];
   private readonly frameSize = 512;
@@ -57,6 +58,10 @@ export class AudioInput extends EventEmitter {
     }
   }
 
+  onFrame(handler: (frame: Float32Array) => void): void {
+    this.on("frame", handler);
+  }
+
   start(): void {
     this.io.start();
   }
@@ -70,7 +75,7 @@ export class AudioInput extends EventEmitter {
  * rate (Piper davefx = 22050). Audio is written in small slices so barge-in can
  * stop it promptly: `stop()` drops everything still queued.
  */
-export class AudioOutput {
+export class AudioOutput implements AudioOutputPort {
   private io: portAudio.AudioIO;
   private cancelled = false;
 
@@ -103,7 +108,10 @@ export class AudioOutput {
         // Back-pressure: wait for drain or a 100ms safety timeout (e.g. if quit() fires).
         await new Promise<void>((r) => {
           const tid = setTimeout(r, 100);
-          this.io.once("drain", () => { clearTimeout(tid); r(); });
+          this.io.once("drain", () => {
+            clearTimeout(tid);
+            r();
+          });
         });
       }
     }

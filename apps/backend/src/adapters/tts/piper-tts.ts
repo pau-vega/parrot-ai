@@ -1,8 +1,9 @@
 import * as ort from "onnxruntime-node";
 import createPiperPhonemize from "@diffusionstudio/piper-wasm/build/piper_phonemize.js";
 import { resolve, dirname } from "path";
+import type { TtsPort, TtsResult } from "../../domain/ports";
 
-const REPO_ROOT = resolve(__dirname, "../../../../");
+const REPO_ROOT = resolve(__dirname, "../../../../../");
 const VOICE_ONNX = resolve(REPO_ROOT, "models/es_ES-davefx-medium.onnx");
 const WASM_GLUE = require.resolve("@diffusionstudio/piper-wasm/build/piper_phonemize.js");
 const WASM_DIR = dirname(WASM_GLUE);
@@ -21,7 +22,7 @@ interface PhonemizeResult {
  * WASM, so phonemes match the trained voice) → VITS inference via onnxruntime-node
  * → 16-bit PCM. No Python, no child process.
  */
-export class PiperTTS {
+export class PiperTTS implements TtsPort {
   private session!: ort.InferenceSession;
   private phonemize!: (text: string) => number[];
   sampleRate = SAMPLE_RATE;
@@ -59,7 +60,7 @@ export class PiperTTS {
   }
 
   /** Synthesize one sentence to 16-bit PCM at this.sampleRate. */
-  async synth(text: string): Promise<{ sampleRate: number; pcm: Buffer }> {
+  async synth(text: string): Promise<TtsResult> {
     const ids = this.phonemize(text);
     if (ids.length === 0) return { sampleRate: this.sampleRate, pcm: Buffer.alloc(0) };
 
