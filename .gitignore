@@ -33,3 +33,6 @@ skills-lock.json
 
 # Logs
 *.log
+
+# Per-session transcripts written by the file transcript repository
+transcripts/
