@@ -12,7 +12,7 @@ export class TurnDetector {
   private silenceFrames = 0
 
   get isSpeaking(): boolean {
-    return this._speaking;
+    return this._speaking
   }
 
   constructor(
