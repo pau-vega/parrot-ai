@@ -1,0 +1,7 @@
+packages:
+  - "apps/*"
+allowBuilds:
+  esbuild: true
+  naudiodon-neo: true
+  onnxruntime-node: true
+  smart-whisper: true
