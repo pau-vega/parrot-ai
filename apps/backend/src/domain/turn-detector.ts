@@ -3,13 +3,13 @@
 // is pure and unit-testable, independent of the ONNX model.
 
 export interface TurnEdge {
-  started: boolean;
-  ended: boolean;
+  started: boolean
+  ended: boolean
 }
 
 export class TurnDetector {
-  speaking = false;
-  private silenceFrames = 0;
+  speaking = false
+  private silenceFrames = 0
 
   constructor(
     private startThreshold = 0.5,
@@ -19,30 +19,30 @@ export class TurnDetector {
 
   // Feed one frame's speech probability; returns start/end edge flags.
   observe(prob: number): TurnEdge {
-    let started = false;
-    let ended = false;
+    let started = false
+    let ended = false
     if (!this.speaking) {
       if (prob >= this.startThreshold) {
-        this.speaking = true;
-        this.silenceFrames = 0;
-        started = true;
+        this.speaking = true
+        this.silenceFrames = 0
+        started = true
       }
     } else {
       if (prob < this.endThreshold) {
         if (++this.silenceFrames >= this.hangoverFrames) {
-          this.speaking = false;
-          this.silenceFrames = 0;
-          ended = true;
+          this.speaking = false
+          this.silenceFrames = 0
+          ended = true
         }
       } else {
-        this.silenceFrames = 0;
+        this.silenceFrames = 0
       }
     }
-    return { started, ended };
+    return { started, ended }
   }
 
   reset(): void {
-    this.speaking = false;
-    this.silenceFrames = 0;
+    this.speaking = false
+    this.silenceFrames = 0
   }
 }

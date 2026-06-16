@@ -1,0 +1,26 @@
+pre-commit:
+  parallel: true
+  commands:
+    branch-check:
+      run: "[ \"$(git symbolic-ref --short HEAD)\" != \"main\" ] || (echo 'Direct commits to main branch are not allowed.' && exit 1)"
+    typecheck:
+      run: pnpm typecheck
+    lint:
+      run: pnpm lint
+    format:
+      run: pnpm format
+
+pre-push:
+  parallel: true
+  commands:
+    typecheck:
+      run: pnpm typecheck
+    lint:
+      run: pnpm lint:check
+    format-check:
+      run: pnpm format:check
+
+commit-msg:
+  commands:
+    commitlint:
+      run: npx --no -- commitlint --edit "$LEFTHOOK_COMMIT_MSG"

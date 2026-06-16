@@ -53,8 +53,16 @@ from the composition root; `index.ts` wires the http adapter and signals.
 
 ```
 parrot-ai/
-  pnpm-workspace.yaml   ← declares apps/*; allowBuilds for native addons
-  turbo.json            ← Turborepo task pipeline (build, dev, check-types)
+  pnpm-workspace.yaml   ← declares apps/* + packages/*; catalog; allowBuilds for native addons
+  turbo.json            ← Turborepo task pipeline (build, dev, lint, lint:check, typecheck, format, test)
+  justfile              ← task runner wrapping the pnpm scripts (`just --list`)
+  lefthook.yml          ← git hooks: pre-commit/pre-push (typecheck/lint/format), commit-msg (commitlint)
+  commitlint.config.ts  ← conventional-commits config for the commit-msg hook
+  .prettierrc / .prettierignore ← prettier config (semi:false, printWidth 120); only src/ is formatted
+  .nvmrc                ← v24
+  packages/
+    tsconfig/           ← @parrot/tsconfig: shared base/react-app/react-library tsconfigs (node24 ESM)
+    eslint-config/      ← @parrot/eslint-config: flat config (node + react), built with tsup
   prompts/
     default-es.txt      ← canonical Spanish persona prompt (single source)
   models/               ← git-ignored weights, fetched via tools/fetch-models.sh
@@ -164,7 +172,8 @@ Per-session transcripts (role + text + ts) are persisted on stop by
 ## How to run
 
 Requirements: macOS (Apple Silicon), `DEEPSEEK_API_KEY`, BlackHole 2ch and 16ch,
-Node.js ≥ 20, pnpm ≥ 9, and a native toolchain (`cmake` + Xcode Command Line
+Node.js ≥ 24 (`.nvmrc` = v24; the backend is ESM on @tsconfig/node24), pnpm ≥ 9,
+and a native toolchain (`cmake` + Xcode Command Line
 Tools) — the audio/STT addons build **from source** (no prebuilds for current
 Node on arm64). No Python.
 
@@ -188,10 +197,14 @@ pnpm dev                                    # = turbo dev; open http://localhost
 
 In Aircall settings: speaker = `BlackHole 2ch`, mic = `BlackHole 16ch`.
 
-`pnpm lint` / `pnpm typecheck` both run `tsc --noEmit` across the workspace (no
-separate linter). Unit tests cover the pure domain units via Node's built-in test
-runner: `pnpm --filter @parrot/backend test` (`tsx --test src/domain/*.test.ts`) —
-no framework installed.
+`pnpm typecheck` runs `tsc --noEmit` across the workspace. `pnpm lint` runs ESLint
+(flat config from `@parrot/eslint-config`, `--fix`); `pnpm lint:check` is the
+non-fixing variant. `pnpm format` / `pnpm format:check` run Prettier (semi:false,
+printWidth 120) over `apps/*/src` + `packages/*/src` only. lefthook enforces all of
+these on commit/push. Or use the `just` recipes (`just lint`, `just check`, …).
+Unit tests cover the pure domain units via Node's built-in test runner:
+`pnpm --filter @parrot/backend test` (`tsx --test src/domain/*.test.ts`) — no
+framework installed.
 
 ## Gotchas
 

@@ -13,6 +13,9 @@ node_modules/
 .turbo/
 apps/backend/dist/
 apps/backend/*.tsbuildinfo
+packages/*/dist/
+packages/*/*.tsbuildinfo
+.eslintcache
 
 # Local Claude config / vendored skills (per-developer, not shared)
 .agents/

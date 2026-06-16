@@ -1,19 +1,21 @@
-import OpenAI from "openai";
-import { LLM_BASE_URL, LLM_MODEL, LLM_MAX_TOKENS } from "../../config/config";
-import type { ChatMessage } from "../../domain/types";
-import type { LlmPort } from "../../domain/ports";
+import OpenAI from "openai"
+
+import type { LlmPort } from "../../domain/ports.js"
+import type { ChatMessage } from "../../domain/types.js"
+
+import { LLM_BASE_URL, LLM_MODEL, LLM_MAX_TOKENS } from "../../config/config.js"
 
 /**
  * DeepSeek (OpenAI-compatible) streaming chat. Stateless: yields raw token deltas.
  * History (Conversation) and sentence chunking (SentenceChunker) live in the domain.
  */
 export class DeepSeekLLM implements LlmPort {
-  private client: OpenAI;
+  private client: OpenAI
 
   constructor() {
-    const apiKey = process.env.DEEPSEEK_API_KEY;
-    if (!apiKey) throw new Error("Missing DEEPSEEK_API_KEY");
-    this.client = new OpenAI({ apiKey, baseURL: LLM_BASE_URL });
+    const apiKey = process.env.DEEPSEEK_API_KEY
+    if (!apiKey) throw new Error("Missing DEEPSEEK_API_KEY")
+    this.client = new OpenAI({ apiKey, baseURL: LLM_BASE_URL })
   }
 
   async *stream(messages: ChatMessage[], signal: AbortSignal): AsyncGenerator<string> {
@@ -25,10 +27,10 @@ export class DeepSeekLLM implements LlmPort {
         stream: true,
       },
       { signal },
-    );
+    )
     for await (const part of stream) {
-      const delta = part.choices[0]?.delta?.content ?? "";
-      if (delta) yield delta;
+      const delta = part.choices[0]?.delta?.content ?? ""
+      if (delta) yield delta
     }
   }
 }
