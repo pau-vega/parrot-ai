@@ -1,5 +1,6 @@
 {
   "$schema": "https://turborepo.dev/schema.json",
+  "globalDependencies": ["packages/tsconfig/*.json"],
   "globalEnv": ["DEEPSEEK_API_KEY", "LLM_BASE_URL", "LLM_MODEL", "PORT"],
   "tasks": {
     "build": {
@@ -10,8 +11,21 @@
       "cache": false,
       "persistent": true
     },
-    "check-types": {
-      "dependsOn": ["^check-types"]
+    "typecheck": {
+      "dependsOn": ["^build"]
+    },
+    "lint": {
+      "dependsOn": ["^build"]
+    },
+    "lint:check": {
+      "dependsOn": ["^build"]
+    },
+    "format": {},
+    "test": {
+      "dependsOn": ["^build"]
+    },
+    "clean": {
+      "cache": false
     }
   }
 }

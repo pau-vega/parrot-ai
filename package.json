@@ -3,16 +3,30 @@
   "private": true,
   "packageManager": "pnpm@11.7.0",
   "engines": {
-    "node": ">=20",
+    "node": ">=24",
     "pnpm": ">=9"
   },
-  "devDependencies": {
-    "turbo": "latest"
-  },
   "scripts": {
-    "lint": "turbo check-types",
-    "build": "turbo build",
     "dev": "turbo dev",
-    "typecheck": "turbo check-types"
+    "build": "turbo build",
+    "lint": "turbo lint",
+    "lint:check": "turbo lint:check",
+    "typecheck": "turbo typecheck",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "test": "turbo test",
+    "clean": "turbo clean",
+    "prepare": "lefthook install"
+  },
+  "devDependencies": {
+    "@commitlint/cli": "^21.0.2",
+    "@commitlint/config-conventional": "^21.0.2",
+    "@parrot/tsconfig": "workspace:*",
+    "@types/node": "^24.13.2",
+    "lefthook": "^2.1.9",
+    "prettier": "catalog:",
+    "rimraf": "catalog:",
+    "turbo": "latest",
+    "typescript": "catalog:"
   }
 }

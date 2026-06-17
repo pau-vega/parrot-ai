@@ -1,0 +1,10 @@
+{
+  "name": "@parrot/tsconfig",
+  "version": "1.0.0",
+  "private": true,
+  "license": "ISC",
+  "description": "Shared TypeScript configurations for the monorepo",
+  "dependencies": {
+    "@tsconfig/node24": "^24.0.4"
+  }
+}

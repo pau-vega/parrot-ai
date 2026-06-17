@@ -13,6 +13,9 @@ node_modules/
 .turbo/
 apps/backend/dist/
 apps/backend/*.tsbuildinfo
+packages/*/dist/
+packages/*/*.tsbuildinfo
+.eslintcache
 
 # Local Claude config / vendored skills (per-developer, not shared)
 .agents/
@@ -36,3 +39,6 @@ skills-lock.json
 
 # Per-session transcripts written by the file transcript repository
 transcripts/
+
+# STT debug WAV dumps (DEBUG_STT_WAV=1)
+debug-audio/

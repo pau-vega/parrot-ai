@@ -1,0 +1,9 @@
+{
+  "name": "@parrot/agent",
+  "private": true,
+  "version": "0.1.0",
+  "scripts": {
+    "dev": "uv run --no-project uvicorn app:app --host 127.0.0.1 --port 8000 --reload",
+    "start": "uv run --no-project uvicorn app:app --host 0.0.0.0 --port 8000"
+  }
+}

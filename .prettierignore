@@ -1,0 +1,19 @@
+# Ignore everything by default
+**
+
+# Re-include workspace source files
+!apps/
+!apps/*/
+!apps/*/src/
+!apps/*/src/**
+!packages/
+!packages/*/
+!packages/*/src/
+!packages/*/src/**
+
+# Re-apply exclusions within workspaces
+**/dist/
+**/build/
+**/node_modules/
+**/.turbo/
+pnpm-lock.yaml
