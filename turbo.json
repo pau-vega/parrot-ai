@@ -1,7 +1,7 @@
 {
   "$schema": "https://turborepo.dev/schema.json",
   "globalDependencies": ["packages/tsconfig/*.json"],
-  "globalEnv": ["DEEPSEEK_API_KEY", "LLM_BASE_URL", "LLM_MODEL", "PORT"],
+  "globalEnv": ["OPENAI_API_KEY", "LLM_MODEL", "PORT"],
   "tasks": {
     "build": {
       "dependsOn": ["^build"],
