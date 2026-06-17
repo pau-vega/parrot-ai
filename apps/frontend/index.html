@@ -149,7 +149,7 @@
       </div>
 
       <div class="cfg" id="cfg">
-        <div><span>LLM</span><b id="cfgLlm">deepseek-chat</b></div>
+        <div><span>LLM</span><b id="cfgLlm">gpt-4o-mini</b></div>
         <div><span>STT</span><b id="cfgStt">whisper · es</b></div>
         <div><span>TTS</span><b id="cfgTts">piper</b></div>
       </div>
@@ -166,7 +166,7 @@ const $ = id => document.getElementById(id);
 const STATES = {
   idle:      ["Idle","no active call"],
   listening: ["Listening","capturing the caller"],
-  thinking:  ["Thinking","querying DeepSeek"],
+  thinking:  ["Thinking","querying OpenAI"],
   speaking:  ["Speaking","responding on the call"],
 };
 let running = false, ws = null;

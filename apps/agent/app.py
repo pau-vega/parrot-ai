@@ -75,13 +75,11 @@ WHISPER_MODEL = "base"                # base+int8 = faster than small; small if 
 WHISPER_COMPUTE = "int8"              # CPU on Mac (whisper doesn't use MPS); int8 ~2-4x faster than float32
 LLM_MAX_TOKENS = 160                  # short voice replies; cuts the LLM's long tail
 
-# LLM: DeepSeek's direct API (OpenAI-compatible endpoint).
-# Use deepseek-chat; NEVER the reasoner (R1): it overthinks for conversation.
-LLM_API_KEY = os.environ.get("DEEPSEEK_API_KEY")
+# LLM: OpenAI. gpt-4o-mini is fast/cheap — good fit for short voice replies.
+LLM_API_KEY = os.environ.get("OPENAI_API_KEY")
 if not LLM_API_KEY:
-    raise RuntimeError("Missing LLM key: export DEEPSEEK_API_KEY (or set it in the repo-root .env).")
-LLM_BASE_URL = os.environ.get("LLM_BASE_URL", "https://api.deepseek.com/v1")
-LLM_MODEL = os.environ.get("LLM_MODEL", "deepseek-chat")
+    raise RuntimeError("Missing LLM key: export OPENAI_API_KEY (or set it in the repo-root .env).")
+LLM_MODEL = os.environ.get("LLM_MODEL", "gpt-4o-mini")
 
 # Persona prompt lives in prompts/default-es.txt (single source); Spanish on purpose
 # (Whisper language=ES + es_ES Piper voice).
@@ -213,7 +211,6 @@ async def run_agent() -> None:
         )
         llm = OpenAILLMService(
             api_key=LLM_API_KEY,
-            base_url=LLM_BASE_URL,
             model=LLM_MODEL,
             params=OpenAILLMService.InputParams(max_tokens=LLM_MAX_TOKENS),
         )

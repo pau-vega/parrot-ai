@@ -90,9 +90,8 @@ first run — there is no `models/` dir or fetch step in the Python flow.
 - **STT:** Pipecat `WhisperSTTService` = **faster-whisper** (CTranslate2),
   `model=base`, `language=ES`, `compute_type=int8` (CPU; int8 ~2–4× faster). This is
   the configuration that transcribed real call audio well.
-- **LLM:** DeepSeek via Pipecat `OpenAILLMService`
-  (`base_url=https://api.deepseek.com/v1`, `model=deepseek-chat`, `max_tokens=160`).
-  Use **deepseek-chat**, never the reasoner (R1): it overthinks for conversation.
+- **LLM:** OpenAI via Pipecat `OpenAILLMService` (`model=gpt-4o-mini`,
+  `max_tokens=160`). gpt-4o-mini is fast/cheap — good fit for short voice replies.
 - **TTS:** Pipecat `PiperTTSService` (native, `voice_id=es_ES-davefx-medium`); the
   voice auto-downloads on first use. Requires the `pipecat-ai[piper]` extra
   (`piper-tts` package) — it's in `requirements.txt`.
@@ -119,9 +118,8 @@ messages to all connected WS clients (`broadcast()` in `app.py`).
 (`load_dotenv`). It's skipped silently if absent, so an exported/ambient env works
 too. Copy `.env.example` → `.env` to get started.
 
-- `DEEPSEEK_API_KEY` — **required** (`app.py` raises on startup without it).
-- `LLM_BASE_URL` — optional, defaults to `https://api.deepseek.com/v1`.
-- `LLM_MODEL` — optional, defaults to `deepseek-chat`.
+- `OPENAI_API_KEY` — **required** (`app.py` raises on startup without it).
+- `LLM_MODEL` — optional, defaults to `gpt-4o-mini`.
 
 The STT model (`base`/`int8`), TTS voice (`es_ES-davefx-medium`), `max_tokens` (160)
 and the server port (8000) are **constants in `app.py`**, not env vars. The persona
@@ -129,7 +127,7 @@ prompt is read from `prompts/default-es.txt` (single source).
 
 ## How to run
 
-Requirements: macOS (Apple Silicon), `DEEPSEEK_API_KEY`, BlackHole 2ch and 16ch,
+Requirements: macOS (Apple Silicon), `OPENAI_API_KEY`, BlackHole 2ch and 16ch,
 Python 3.12 (faster-whisper/onnxruntime have no 3.13/3.14 wheels), `uv`, Homebrew
 `portaudio` (for PyAudio/sounddevice), and pnpm ≥ 9 (for the Turborepo task runner).
 
@@ -145,7 +143,7 @@ just setup-agent
 #   CFLAGS=-I/opt/homebrew/include LDFLAGS=-L/opt/homebrew/lib uv pip sync requirements.txt
 
 # Run — UI (key via repo-root .env, or an exported env var)
-cp .env.example .env                        # then fill in DEEPSEEK_API_KEY
+cp .env.example .env                        # then fill in OPENAI_API_KEY
 pnpm dev                                    # = turbo dev → uvicorn; open http://localhost:8000
 # or: cd apps/agent && uv run uvicorn app:app --port 8000
 ```
