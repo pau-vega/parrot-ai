@@ -33,6 +33,7 @@ from pipecat.pipeline.pipeline import Pipeline
 from pipecat.pipeline.runner import PipelineRunner
 from pipecat.pipeline.task import PipelineParams, PipelineTask
 from pipecat.audio.vad.silero import SileroVADAnalyzer
+from pipecat.audio.vad.vad_analyzer import VADParams
 from pipecat.transports.local.audio import LocalAudioTransport, LocalAudioTransportParams
 from pipecat.services.whisper.stt import WhisperSTTService
 from pipecat.services.openai.llm import OpenAILLMService
@@ -220,7 +221,11 @@ async def run_agent() -> None:
         context = LLMContext([{"role": "system", "content": state["prompt"]}])
         agg = LLMContextAggregatorPair(
             context,
-            user_params=LLMUserAggregatorParams(vad_analyzer=SileroVADAnalyzer()),
+            # stop_secs=0.8 (vs 0.2 default): let the speaker pause between
+            # clauses without ending the turn — stops fragmented half-answers.
+            user_params=LLMUserAggregatorParams(
+                vad_analyzer=SileroVADAnalyzer(params=VADParams(stop_secs=0.8)),
+            ),
         )
 
         pipeline = Pipeline([
@@ -233,7 +238,9 @@ async def run_agent() -> None:
             agg.assistant(),
         ])
 
-        task = PipelineTask(pipeline, params=PipelineParams())
+        # idle_timeout_secs=None: don't self-cancel on silence. Two bots pause
+        # naturally; the pipeline must survive dead air and resume, not die at 5 min.
+        task = PipelineTask(pipeline, params=PipelineParams(), idle_timeout_secs=None)
         task.add_observer(ConsoleObserver())
     except Exception as e:
         await broadcast({"type": "error", "message": str(e)})
@@ -259,6 +266,27 @@ async def run_agent() -> None:
 @app.get("/")
 async def index():
     return FileResponse(FRONTEND_INDEX)
+
+
+_PROMPT_LABELS = {
+    "default-es": "Default – María Fernández",
+    "reschedule-es": "Reschedule – next day",
+}
+
+
+@app.get("/prompts")
+async def list_prompts():
+    prompts_dir = REPO_ROOT / "prompts"
+    out = []
+    for p in sorted(prompts_dir.glob("*.txt")):
+        pid = p.stem
+        out.append({
+            "id": pid,
+            "label": _PROMPT_LABELS.get(pid, pid),
+            "content": p.read_text(encoding="utf-8").strip(),
+            "default": pid == "default-es",
+        })
+    return out
 
 
 @app.websocket("/ws")
