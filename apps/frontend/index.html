@@ -140,6 +140,11 @@
       </div>
 
       <div class="field">
+        <label>Prompt preset</label>
+        <select id="promptSel"><option value="">— loading —</option></select>
+      </div>
+
+      <div class="field">
         <label>System prompt</label>
         <textarea id="prompt" placeholder="Define how the agent behaves…"></textarea>
         <div class="row">
@@ -235,6 +240,26 @@ $("stopBtn").onclick  = ()=> send({type:"stop"});
 $("applyPrompt").onclick = ()=>{
   send({type:"set_prompt", text:$("prompt").value});
   const s=$("saved"); s.classList.add("show"); setTimeout(()=>s.classList.remove("show"),1400);
+};
+
+let presets = [];
+fetch("/prompts").then(r=>r.json()).then(data=>{
+  presets = data;
+  const sel = $("promptSel");
+  sel.innerHTML = "";
+  data.forEach(p=>{
+    const o = document.createElement("option");
+    o.value = p.id; o.textContent = p.label;
+    if(p.default) o.selected = true;
+    sel.appendChild(o);
+  });
+  const def = data.find(p=>p.default);
+  if(def && !$("prompt").value) $("prompt").value = def.content;
+}).catch(()=>{});
+
+$("promptSel").onchange = ()=>{
+  const p = presets.find(x=>x.id===$("promptSel").value);
+  if(p) $("prompt").value = p.content;
 };
 
 connect();
